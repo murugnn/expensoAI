@@ -1,0 +1,85 @@
+# =========================
+# Flutter / Dart
+# =========================
+.dart_tool/
+.packages
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+coverage/
+*.lock
+
+# =========================
+# Android
+# =========================
+android/.gradle/
+android/local.properties
+android/key.properties
+android/**/GeneratedPluginRegistrant.java
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Keystore files (never commit)
+*.jks
+*.keystore
+
+# =========================
+# iOS / macOS
+# =========================
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+ios/Runner/GeneratedPluginRegistrant.*
+ios/Runner.xcworkspace/
+*.xcuserstate
+*.xcuserdata/
+
+# =========================
+# Web
+# =========================
+web/.dart_tool/
+web/build/
+
+# =========================
+# Windows / Linux
+# =========================
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+macos/Flutter/ephemeral/
+
+# =========================
+# IDE / Editors
+# =========================
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# =========================
+# OS junk
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Env files (API keys)
+# =========================
+.env
+.env.*
+!.env.example
+
+android/key.properties
+android/app/keystore/
+*.jks

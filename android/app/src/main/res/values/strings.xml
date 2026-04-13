@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Expenso</string>
+    <string name="widget_battle_desc">
+        Shows your current boss battle progress and opens Expenso dashboard
+    </string>
+</resources>
