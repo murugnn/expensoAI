@@ -25,6 +25,9 @@ import 'package:expenso/features/main_screen.dart';
 import 'package:expenso/features/settings/referral_screen.dart';
 import 'package:expenso/features/auth/reset_password_screen.dart';
 import 'package:expenso/features/goals/screens/goals_screen.dart';
+import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
+
+final GlobalKey<MainScreenState> mainScreenKey = GlobalKey<MainScreenState>();
 
 class AppRoutes {
   static const String splash = '/';
@@ -40,6 +43,7 @@ class AppRoutes {
   static const String rewardsShop = '/rewards-shop';
   static const String streak = '/streak';
   static const String resetPassword = '/reset-password';
+  static const String chat = '/chat';
 
   static final router = GoRouter(
     initialLocation: splash,
@@ -87,7 +91,7 @@ class AppRoutes {
       GoRoute(path: signup, builder: (context, state) => const SignupScreen()),
 
       // Main Screen (Dashboard) holds the BottomNavBar
-      GoRoute(path: dashboard, builder: (context, state) => const MainScreen()),
+      GoRoute(path: dashboard, builder: (context, state) => MainScreen(key: mainScreenKey)),
 
       GoRoute(
           path: profile, builder: (context, state) => const ProfileScreen()),

@@ -1,3 +1,4 @@
+import 'package:expenso/widgets/global_niva_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -7,8 +8,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:expenso/services/supabase_config.dart';
 import 'package:expenso/services/notification_service.dart';
 import 'package:expenso/services/launch_intent_service.dart';
-import 'package:expenso/services/launch_intent_service.dart';
-import 'package:expenso/services/ml_service.dart'; // Import ML Service
 import 'package:expenso/services/ml_service.dart'; // Import ML Service
 import 'package:expenso/services/referral_service.dart';
 import 'package:expenso/services/sms_service.dart';
@@ -31,6 +30,9 @@ import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/providers/demon_game_provider.dart';
 import 'package:expenso/providers/contact_provider.dart';
 import 'package:expenso/providers/subscription_provider.dart';
+import 'package:expenso/providers/niva_voice_provider.dart';
+import 'package:expenso/providers/agentic_chat_provider.dart';
+import 'package:vapi/vapi.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +50,8 @@ void main() async {
     anonKey: SupabaseConfig.anonKey,
   );
 
-  // REMOVED: expenseProvider usage here (it doesn't exist yet!)
+  // Initialize Vapi platform (required for web, instant on mobile)
+  await VapiClient.platformInitialized.future;
 
   runApp(const MyApp());
 }
@@ -87,6 +90,12 @@ class MyApp extends StatelessWidget {
             SubscriptionProvider>(
           create: (_) => SubscriptionProvider(),
           update: (_, auth, expense, sub) => sub!..update(auth, expense),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => NivaVoiceProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgenticChatProvider(),
         ),
       ],
       child: const ExpensoApp(),
@@ -240,6 +249,9 @@ class _ExpensoAppState extends State<ExpensoApp> {
                 }
               },
             ),
+            
+            // Global Niva Voice UI
+            const GlobalNivaOverlay(),
           ],
         );
       },

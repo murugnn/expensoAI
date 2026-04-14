@@ -223,7 +223,7 @@ class StreakCard extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
                 onTap: () async {
-                  await game.restoreStreak(useShield: true);
+                  await game.restoreStreak(); // useShield temporarily dropped
                   if (ctx.mounted) Navigator.pop(ctx);
                 },
               ),
@@ -234,17 +234,17 @@ class StreakCard extends StatelessWidget {
               tileColor: Colors.orange.withOpacity(0.1),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
-              onTap: () async {
-                final success = await game.restoreStreak(useShield: false);
-                if (ctx.mounted) {
-                  if (success) {
-                    Navigator.pop(ctx);
-                  } else {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text("Not enough coins!")));
+                onTap: () async {
+                  final err = await game.restoreStreak(); // useShield temporarily dropped
+                  if (ctx.mounted) {
+                    if (err == null) {
+                      Navigator.pop(ctx);
+                    } else {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(content: Text(err)));
+                    }
                   }
-                }
-              },
+                },
             ),
             const SizedBox(height: 10),
             TextButton(
