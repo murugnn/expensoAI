@@ -239,205 +239,208 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final filteredExpenses = _getFilteredExpenses(expenseProvider.expenses);
     final groupedExpenses = _groupByDate(filteredExpenses);
 
-    return SafeArea(
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: AppSpacing.paddingMd,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 16),
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: AppSpacing.paddingMd,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
 
-                  // --- HEADER ROW (Title + Calendar Icon) ---
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('History',
-                          style: context.textStyles.headlineSmall?.bold
-                              ?.copyWith(fontFamily: AppTheme.kDisplayFontFamily)),
-                      IconButton(
-                        onPressed: () => _showCalendarPopup(
-                            context, expenseProvider, settings.currencySymbol),
-                        icon: const Icon(Icons.calendar_month_rounded),
-                        tooltip: "Monthly Overview",
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Search Bar
-                  TextField(
-                    controller: _searchController,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      hintText: 'Search...',
-                      prefixIcon: Icon(Icons.search_rounded,
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none),
-                      filled: true,
-                      fillColor:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                    // --- HEADER ROW (Title + Calendar Icon) ---
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('History',
+                            style: context.textStyles.headlineSmall?.bold
+                                ?.copyWith(fontFamily: AppTheme.kDisplayFontFamily)),
+                        IconButton(
+                          onPressed: () => _showCalendarPopup(
+                              context, expenseProvider, settings.currencySymbol),
+                          icon: const Icon(Icons.calendar_month_rounded),
+                          tooltip: "Monthly Overview",
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
 
-                  // Time Filters
-                  SizedBox(
-                    height: 40,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _filters.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) => _FilterChip(
-                        label: _filters[index],
-                        isSelected: _selectedFilter == _filters[index],
-                        onTap: () =>
-                            setState(() => _selectedFilter = _filters[index]),
+                    const SizedBox(height: 16),
+
+                    // Search Bar
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search...',
+                        prefixIcon: Icon(Icons.search_rounded,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none),
+                        filled: true,
+                        fillColor:
+                            Theme.of(context).colorScheme.surfaceContainerHighest,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 16),
 
-                  // Category Filters (Dynamic)
-                  SizedBox(
-                    height: 40,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: categories.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) => _FilterChip(
-                        label: categories[index],
-                        isSelected: _selectedCategory == categories[index],
-                        onTap: () => setState(
-                            () => _selectedCategory = categories[index]),
+                    // Time Filters
+                    SizedBox(
+                      height: 40,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _filters.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => _FilterChip(
+                          label: _filters[index],
+                          isSelected: _selectedFilter == _filters[index],
+                          onTap: () =>
+                              setState(() => _selectedFilter = _filters[index]),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+
+                    // Category Filters (Dynamic)
+                    SizedBox(
+                      height: 40,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categories.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => _FilterChip(
+                          label: categories[index],
+                          isSelected: _selectedCategory == categories[index],
+                          onTap: () => setState(
+                              () => _selectedCategory = categories[index]),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
 
-            // --- EXPENSE LIST ---
-            Expanded(
-              child: expenseProvider.isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : filteredExpenses.isEmpty
-                      ? _buildEmptyState(context)
-                      : ListView.builder(
-                          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
-                          itemCount: groupedExpenses.length,
-                          itemBuilder: (context, index) {
-                            final dateKey = groupedExpenses.keys.elementAt(index);
-                            final expenses = groupedExpenses[dateKey]!;
-                            
-                            // Group expenses by billId
-                            final List<Widget> dayWidgets = [];
-                            final processedBills = <String>{};
+              // --- EXPENSE LIST ---
+              Expanded(
+                child: expenseProvider.isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : filteredExpenses.isEmpty
+                        ? _buildEmptyState(context)
+                        : ListView.builder(
+                            padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
+                            itemCount: groupedExpenses.length,
+                            itemBuilder: (context, index) {
+                              final dateKey = groupedExpenses.keys.elementAt(index);
+                              final expenses = groupedExpenses[dateKey]!;
+                              
+                              // Group expenses by billId
+                              final List<Widget> dayWidgets = [];
+                              final processedBills = <String>{};
 
-                            for (var expense in expenses) {
-                              if (expense.billId != null) {
-                                if (processedBills.contains(expense.billId)) continue;
-                                
-                                // Found a new bill
-                                processedBills.add(expense.billId!);
-                                final billExpenses = expenses.where((e) => e.billId == expense.billId).toList();
-                                final billTotal = billExpenses.fold(0.0, (sum, e) => sum + e.amount);
-                                final billTitle = (billExpenses.first.billName != null && billExpenses.first.billName!.isNotEmpty) 
-                                    ? billExpenses.first.billName! 
-                                    : (billExpenses.first.title.isNotEmpty ? billExpenses.first.title : "Bill");
-                                final subtitle = "${billExpenses.length} items • ${billExpenses.first.title} & more";
+                              for (var expense in expenses) {
+                                if (expense.billId != null) {
+                                  if (processedBills.contains(expense.billId)) continue;
+                                  
+                                  // Found a new bill
+                                  processedBills.add(expense.billId!);
+                                  final billExpenses = expenses.where((e) => e.billId == expense.billId).toList();
+                                  final billTotal = billExpenses.fold(0.0, (sum, e) => sum + e.amount);
+                                  final billTitle = (billExpenses.first.billName != null && billExpenses.first.billName!.isNotEmpty) 
+                                      ? billExpenses.first.billName! 
+                                      : (billExpenses.first.title.isNotEmpty ? billExpenses.first.title : "Bill");
+                                  final subtitle = "${billExpenses.length} items • ${billExpenses.first.title} & more";
 
-                                dayWidgets.add(
-                                  _BillCard(
-                                    title: billTitle, 
-                                    subtitle: subtitle,
-                                    count: billExpenses.length,
-                                    totalAmount: billTotal,
-                                    date: expense.date,
-                                    expenses: billExpenses,
-                                    onDelete: () async {
-                                       // Confirm delete all
-                                       final confirm = await showDialog<bool>(
-                                         context: context,
-                                         builder: (ctx) => AlertDialog(
-                                           title: const Text("Delete Bill?"),
-                                           content: Text("This will delete all ${billExpenses.length} items in this bill."),
-                                           actions: [
-                                             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-                                             FilledButton(
-                                               style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                                               onPressed: () => Navigator.pop(ctx, true), 
-                                               child: const Text("Delete All")
-                                             ),
-                                           ],
-                                         )
-                                       );
-                                       if (confirm == true) {
-                                         final provider = context.read<ExpenseProvider>();
-                                         for(var e in billExpenses) {
-                                           await provider.deleteExpense(e.id);
+                                  dayWidgets.add(
+                                    _BillCard(
+                                      title: billTitle, 
+                                      subtitle: subtitle,
+                                      count: billExpenses.length,
+                                      totalAmount: billTotal,
+                                      date: expense.date,
+                                      expenses: billExpenses,
+                                      onDelete: () async {
+                                         // Confirm delete all
+                                         final confirm = await showDialog<bool>(
+                                           context: context,
+                                           builder: (ctx) => AlertDialog(
+                                             title: const Text("Delete Bill?"),
+                                             content: Text("This will delete all ${billExpenses.length} items in this bill."),
+                                             actions: [
+                                               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+                                               FilledButton(
+                                                 style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                                                 onPressed: () => Navigator.pop(ctx, true), 
+                                                 child: const Text("Delete All")
+                                               ),
+                                             ],
+                                           )
+                                         );
+                                         if (confirm == true) {
+                                           final provider = context.read<ExpenseProvider>();
+                                           for(var e in billExpenses) {
+                                             await provider.deleteExpense(e.id);
+                                           }
                                          }
-                                       }
-                                    },
-                                  )
-                                );
-                              } else {
-                                // Standalone Expense
-                                dayWidgets.add(
-                                  GestureDetector(
-                                      onLongPress: () => _confirmDelete(expense),
-                                      child: Dismissible(
-                                        key: Key(expense.id),
-                                        direction: DismissDirection.endToStart,
-                                        confirmDismiss: (direction) async {
-                                          _confirmDelete(expense);
-                                          return false;
-                                        },
-                                        background: Container(
-                                          alignment: Alignment.centerRight,
-                                          padding: const EdgeInsets.only(right: 20),
-                                          margin: const EdgeInsets.only(bottom: 12),
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(context).colorScheme.error,
-                                            borderRadius: BorderRadius.circular(16),
-                                          ),
-                                          child: const Icon(Icons.delete_outline, color: Colors.white),
-                                        ),
-                                        child: Padding(
-                                          padding: const EdgeInsets.only(bottom: 12),
-                                          child: ExpenseCard(expense: expense),
-                                        ),
-                                      ),
+                                      },
                                     )
-                                );
+                                  );
+                                } else {
+                                  // Standalone Expense
+                                  dayWidgets.add(
+                                    GestureDetector(
+                                        onLongPress: () => _confirmDelete(expense),
+                                        child: Dismissible(
+                                          key: Key(expense.id),
+                                          direction: DismissDirection.endToStart,
+                                          confirmDismiss: (direction) async {
+                                            _confirmDelete(expense);
+                                            return false;
+                                          },
+                                          background: Container(
+                                            alignment: Alignment.centerRight,
+                                            padding: const EdgeInsets.only(right: 20),
+                                            margin: const EdgeInsets.only(bottom: 12),
+                                            decoration: BoxDecoration(
+                                              color: Theme.of(context).colorScheme.error,
+                                              borderRadius: BorderRadius.circular(16),
+                                            ),
+                                            child: const Icon(Icons.delete_outline, color: Colors.white),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(bottom: 12),
+                                            child: ExpenseCard(expense: expense),
+                                          ),
+                                        ),
+                                      )
+                                  );
+                                }
                               }
-                            }
 
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  child: Text(
-                                    dateKey,
-                                    style: context.textStyles.titleSmall?.semiBold.copyWith(
-                                      color: Theme.of(context).colorScheme.primary,
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    child: Text(
+                                      dateKey,
+                                      style: context.textStyles.titleSmall?.semiBold.copyWith(
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                ...dayWidgets,
-                              ],
-                            );
-                          },
-                        ),
-          ),
-        ],
+                                  ...dayWidgets,
+                                ],
+                              );
+                            },
+                          ),
+            ),
+          ],
+        ),
       ),
     );
   }

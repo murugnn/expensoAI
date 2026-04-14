@@ -1,7 +1,7 @@
 name: expenso
 description: "Introducing EXPENSO, a sleek AI-powered expense tracker app designed to help you effortlessly manage your finances with a modern Material 3 interface and insightful AI analysis."
 publish_to: "none"
-version: 2.8.8
+version: 3.0.0
 
 environment:
   sdk: ^3.6.0
@@ -50,6 +50,14 @@ dependencies:
   open_filex: ^4.5.0
   csv: ^7.1.0
 
+  # Niva Voice Assistant
+  vapi: ^0.1.0
+  rive: ^0.13.12
+  speech_to_text: ^7.3.0
+  flutter_animate: ^4.5.2
+  lucide_icons: ^0.257.0
+  wakelock_plus: ^1.5.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -62,6 +70,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/rive/
     - .env
     - assets/
     - assets/images/
@@ -86,3 +95,7 @@ flutter_launcher_icons:
 
   adaptive_icon_background: "#0B1220"
   adaptive_icon_foreground: assets/icons/logo.png
+
+dependency_overrides:
+  vapi:
+    path: ./vapi_patched
