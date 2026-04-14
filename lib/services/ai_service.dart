@@ -7,7 +7,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 class AIService {
   final String _apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
 
-  final String _model = "openai/gpt-oss-20b";
+  final String _model = "llama-3.1-8b-instant";
 
   bool get hasKey => _apiKey.isNotEmpty;
   static const String _systemPrompt = """
