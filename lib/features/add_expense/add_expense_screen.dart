@@ -19,19 +19,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
 
-  String _selectedCategory = 'Food';
+  ExpenseCategory _selectedCategory = ExpenseCategory.food;
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = false;
-
-  final List<String> _categories = [
-    'Food',
-    'Transport',
-    'Shopping',
-    'Bills',
-    'Entertainment',
-    'Health',
-    'Other'
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -102,13 +92,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
+                  child: DropdownButton<ExpenseCategory>(
                     value: _selectedCategory,
                     isExpanded: true,
                     icon: Icon(Icons.keyboard_arrow_down_rounded,
                         color: cs.primary),
-                    items: _categories.map((cat) {
-                      return DropdownMenuItem<String>(
+                    items: ExpenseCategory.values.map((cat) {
+                      return DropdownMenuItem(
                         value: cat,
                         child: Row(
                           children: [
@@ -116,7 +106,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                                 size: 18, color: cs.primary),
                             const SizedBox(width: 12),
                             Text(
-                              cat,
+                              cat.name[0].toUpperCase() + cat.name.substring(1),
                               style: context.textStyles.bodyMedium,
                             ),
                           ],
@@ -187,22 +177,21 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     );
   }
 
-  IconData _getIconForCategory(String c) {
-    switch (c.toLowerCase()) {
-      case 'food':
+  IconData _getIconForCategory(ExpenseCategory c) {
+    switch (c) {
+      case ExpenseCategory.food:
         return Icons.fastfood_rounded;
-      case 'transport':
+      case ExpenseCategory.transport:
         return Icons.directions_car_rounded;
-      case 'shopping':
+      case ExpenseCategory.shopping:
         return Icons.shopping_bag_rounded;
-      case 'bills':
+      case ExpenseCategory.bills:
         return Icons.receipt_long_rounded;
-      case 'entertainment':
+      case ExpenseCategory.entertainment:
         return Icons.movie_rounded;
-      case 'health':
+      case ExpenseCategory.health:
         return Icons.medical_services_rounded;
-      case 'other':
-      default:
+      case ExpenseCategory.other:
         return Icons.category_rounded;
     }
   }
@@ -248,7 +237,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     if (mounted) {
       setState(() => _isLoading = false);
-      if (success != null) {
+      if (success) {
         context.pop(); // Go back to dashboard
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

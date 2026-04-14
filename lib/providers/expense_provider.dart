@@ -212,44 +212,6 @@ class ExpenseProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> updateExpense(Expense updated) async {
-    final user = _authProvider?.currentUser;
-    if (user == null) return;
-
-    final index = _expenses.indexWhere((e) => e.id == updated.id);
-    if (index == -1) return;
-
-    final oldExpense = _expenses[index];
-
-    try {
-      // Offline Upsert Logic inside ExpenseService perfectly binds `addExpense` for Upsert!
-      await _expenseService.addExpense(updated);
-
-      // Mutate local memory instantly
-      _expenses[index] = updated;
-      notifyListeners();
-      _updateWidgetData();
-      await checkBudgetAlerts();
-
-      // Ensure goals adapt correctly if the amount changed and applies to expense_limit constraints
-      if (_goalService != null && _goalService!.activeGoals.isNotEmpty) {
-        final amountDifference = updated.amount - oldExpense.amount;
-        if (amountDifference != 0) {
-          final matchingLimits = _goalService!.activeGoals.where((g) => 
-            !g.isCompleted && 
-            g.goalType.toString().contains('expense') && 
-            (g.category == null || g.category!.isEmpty || g.category!.toLowerCase() == updated.category.toLowerCase()));
-              
-          for (var goal in matchingLimits) {
-             await _goalService!.updateGoalProgress(goal.id, amountDifference);
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint("❌ updateExpense failed: $e");
-    }
-  }
-
   Future<void> deleteExpense(String id) async {
     final user = _authProvider?.currentUser;
     if (user == null) return;

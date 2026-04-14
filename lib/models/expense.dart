@@ -11,11 +11,6 @@ class Expense {
   final String? billId; // ID to group expenses involved in a single bill
   final String? billName; // Name of the bill (e.g. Merchant Name)
 
-  // Multi-Currency Metadata (for cross-border transactions)
-  final String? originalCurrency;  // ISO 4217 code (e.g. "EUR", "USD")
-  final double? originalAmount;    // Amount in original foreign currency
-  final double? exchangeRate;      // Exchange rate used at conversion time
-
   // Sync Metadata
   final bool isSynced; // True if saved to Supabase
   final bool isDeleted; // True if deleted locally but not yet on Supabase
@@ -33,9 +28,6 @@ class Expense {
     this.wallet = 'Cash',
     this.billId,
     this.billName,
-    this.originalCurrency,
-    this.originalAmount,
-    this.exchangeRate,
     this.isSynced = false,
     this.isDeleted = false,
     DateTime? updatedAt,
@@ -55,9 +47,6 @@ class Expense {
       wallet: json['wallet'] ?? 'Cash',
       billId: json['billId'],
       billName: json['billName'],
-      originalCurrency: json['originalCurrency'],
-      originalAmount: (json['originalAmount'] as num?)?.toDouble(),
-      exchangeRate: (json['exchangeRate'] as num?)?.toDouble(),
       isSynced: json['isSynced'] ?? true,
       isDeleted: json['isDeleted'] ?? false,
       updatedAt: json['updatedAt'] != null
@@ -80,9 +69,6 @@ class Expense {
       'wallet': wallet,
       'billId': billId,
       'billName': billName,
-      'originalCurrency': originalCurrency,
-      'originalAmount': originalAmount,
-      'exchangeRate': exchangeRate,
       'isSynced': isSynced,
       'isDeleted': isDeleted,
       'updatedAt': updatedAt.toIso8601String(),
@@ -127,9 +113,6 @@ class Expense {
       wallet: (json['wallet'] ?? 'Cash').toString(),
       billId: json['bill_id']?.toString(),
       billName: json['bill_name']?.toString(),
-      originalCurrency: json['original_currency']?.toString(),
-      originalAmount: (json['original_amount'] as num?)?.toDouble(),
-      exchangeRate: (json['exchange_rate'] as num?)?.toDouble(),
       isSynced: true,
       isDeleted: false,
       updatedAt: json['updated_at'] != null
@@ -151,9 +134,6 @@ class Expense {
     String? wallet,
     String? billId,
     String? billName,
-    String? originalCurrency,
-    double? originalAmount,
-    double? exchangeRate,
     bool? isSynced,
     bool? isDeleted,
     DateTime? updatedAt,
@@ -170,9 +150,6 @@ class Expense {
       wallet: wallet ?? this.wallet,
       billId: billId ?? this.billId,
       billName: billName ?? this.billName,
-      originalCurrency: originalCurrency ?? this.originalCurrency,
-      originalAmount: originalAmount ?? this.originalAmount,
-      exchangeRate: exchangeRate ?? this.exchangeRate,
       isSynced: isSynced ?? this.isSynced,
       isDeleted: isDeleted ?? this.isDeleted,
       updatedAt: updatedAt ?? this.updatedAt,

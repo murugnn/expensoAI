@@ -17,8 +17,6 @@ import 'package:expenso/features/add_expense/add_bill_sheet.dart';
 import 'package:expenso/core/components/summary_card.dart';
 import 'package:expenso/core/components/expense_card.dart';
 import 'package:expenso/core/components/category_spend_chart.dart';
-import 'package:expenso/features/dashboard/widgets/financial_health_gauge.dart';
-import 'package:expenso/services/financial_memory_service.dart';
 import 'package:expenso/features/dashboard/widgets/flippable_chart_card.dart';
 import 'package:expenso/services/notification_service.dart';
 import 'package:expenso/features/dashboard/widgets/monthly_summary_sheet.dart';
@@ -27,7 +25,6 @@ import 'package:expenso/features/updater/services/update_service.dart';
 import 'package:expenso/services/receipt_scanner_service.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:expenso/features/goals/widgets/active_goal_summary_widget.dart';
-import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onViewAll;
@@ -437,11 +434,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final expenseProvider = context.watch<ExpenseProvider>();
     final goalService = context.watch<GoalService>();
 
-    final health = FinancialMemoryService().getFinancialHealthScore(
-      expenseProvider.expenses,
-      monthlyBudget: expenseProvider.currentBudget?.amount,
-    );
-
     final budget = expenseProvider.currentBudget?.amount ?? 10000.0;
     final totalSpent = expenseProvider.getTotalSpent(DateTime.now());
     final recentExpenses = expenseProvider.expenses.take(5).toList();
@@ -529,25 +521,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 const SizedBox(height: 32),
 
-                // --- FINANCIAL HEALTH GAUGE ---
-                FinancialHealthGauge(
-                  score: health.score,
-                  grade: health.grade,
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => AgenticChatSheet(
-                        initialMessage: 'Why is my financial health score at ${health.score}?',
-                      ),
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 32),
-
                 // --- SUMMARY CARD ---
                 InkWell(
                   key: widget.summaryKey,
@@ -584,73 +557,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-                
-                // --- ASK NIVA BUTTON ---
-                InkWell(
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => const AgenticChatSheet(),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: cs.outlineVariant.withOpacity(0.5),
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: cs.surface,
-                          ),
-                          child: const CircleAvatar(
-                            backgroundImage: AssetImage('assets/images/avatars/7.png'),
-                            radius: 20,
-                            backgroundColor: Colors.transparent,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Ask Niva!',
-                                style: TextStyle(
-                                  color: cs.onSurface,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                'Your AI Financial Proxy',
-                                style: TextStyle(
-                                  color: cs.onSurfaceVariant,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(Icons.arrow_forward_ios_rounded, color: cs.onSurfaceVariant, size: 16),
-                      ],
-                    ),
                   ),
                 ),
 

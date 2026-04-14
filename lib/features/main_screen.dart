@@ -16,22 +16,16 @@ import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/features/tutorial/tutorial_helper.dart';
 import 'package:expenso/providers/app_settings_provider.dart';
 import 'package:expenso/widgets/floating_update_icon.dart';
-import 'package:expenso/widgets/niva_orb_widget.dart';
-import 'package:expenso/providers/niva_voice_provider.dart';
-import 'package:expenso/providers/subscription_provider.dart';
-import 'package:expenso/providers/contact_provider.dart';
-import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => MainScreenState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin {
+class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   late AnimationController _animationController;
   late Animation<double> _iconAnimation;
@@ -171,22 +165,6 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildActionCard(
-                      context,
-                      title: "Chat with Niva",
-                      subtitle: "Agentic Financial Proxy",
-                      icon: Icons.chat_bubble_outline,
-                      color: Colors.purpleAccent,
-                      onTap: () {
-                        _closeMenu();
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const AgenticChatSheet(),
-                        );
-                      },
-                    ),
                    _buildActionCard(
                       context,
                       title: "Add Expense",
@@ -300,38 +278,19 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
                     },
                   ),
                  ),
-              // Niva Transcript Bubble handled by GlobalNivaOverlay
             ],
           ),
-          floatingActionButton: Consumer<NivaVoiceProvider>(
-            builder: (context, provider, child) {
-              final isActive = provider.status != NivaStatus.idle;
-              
-              if (isActive) {
-                // The GlobalNivaOverlay renders the orb locally at this position.
-                // We just provide an empty SizedBox here to hold the docking notch open.
-                return const SizedBox(height: 80, width: 80);
-              }
-
-              return GestureDetector(
-                onLongPress: () {
-                  HapticFeedback.heavyImpact();
-                  _startNivaVoiceSession();
-                },
-                child: SizedBox(
-                  height: 60,
-                  width: 60,
-                  child: FloatingActionButton(
-                    key: _fabKey,
-                    onPressed: _toggleMenu,
-                    shape: const CircleBorder(),
-                    backgroundColor: cs.primary,
-                    elevation: 6,
-                    child: Icon(Icons.add, color: cs.onPrimary, size: 32),
-                  ),
-                ),
-              );
-            },
+          floatingActionButton: SizedBox(
+            height: 60,
+            width: 60,
+            child: FloatingActionButton(
+              key: _fabKey,
+              onPressed: _toggleMenu,
+              shape: const CircleBorder(),
+              backgroundColor: cs.primary,
+              elevation: 6,
+              child: Icon(Icons.add, color: cs.onPrimary, size: 32),
+            ),
           ),
           floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
           bottomNavigationBar: BottomAppBar(
@@ -354,33 +313,6 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
         
 
       ],
-    );
-  }
-
-  // --- Niva Voice Assistant ---
-
-  void _startNivaVoiceSession() {
-    final nivaProvider = context.read<NivaVoiceProvider>();
-    if (nivaProvider.status != NivaStatus.idle) return;
-
-    nivaProvider.setNavContext(context);
-    final expenseProvider = context.read<ExpenseProvider>();
-    final authProvider = context.read<AuthProvider>();
-    final gamificationProvider = context.read<GamificationProvider>();
-    final subscriptionProvider = context.read<SubscriptionProvider>();
-    final contactProvider = context.read<ContactProvider>();
-    final goalService = context.read<GoalService>();
-
-    nivaProvider.startCall(
-      expenses: expenseProvider.expenses,
-      budget: expenseProvider.currentBudget?.amount,
-      userName: authProvider.userName,
-      goals: goalService.goals,
-      subscriptions: subscriptionProvider.subscriptions,
-      coins: gamificationProvider.coins,
-      xp: gamificationProvider.xp,
-      streak: gamificationProvider.currentStreak,
-      contacts: contactProvider.contacts,
     );
   }
 

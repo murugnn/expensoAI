@@ -26,28 +26,6 @@ class Budget {
     };
   }
 
-  factory Budget.fromJson(Map<String, dynamic> json) {
-    return Budget(
-      id: json['id'],
-      userId: json['userId'],
-      amount: (json['amount'] as num).toDouble(),
-      month: DateTime.parse(json['month']),
-      createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: DateTime.parse(json['updatedAt']),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'userId': userId,
-      'amount': amount,
-      'month': month.toIso8601String(),
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
-    };
-  }
-
   factory Budget.fromSupabase(Map<String, dynamic> json) {
     return Budget(
       id: json['id'].toString(),
