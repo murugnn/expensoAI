@@ -22,7 +22,6 @@ import 'package:expenso/providers/subscription_provider.dart';
 import 'package:expenso/providers/contact_provider.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -171,22 +170,7 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildActionCard(
-                      context,
-                      title: "Chat with Niva",
-                      subtitle: "Agentic Financial Proxy",
-                      icon: Icons.chat_bubble_outline,
-                      color: Colors.purpleAccent,
-                      onTap: () {
-                        _closeMenu();
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const AgenticChatSheet(),
-                        );
-                      },
-                    ),
+
                    _buildActionCard(
                       context,
                       title: "Add Expense",
@@ -316,7 +300,7 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
               return GestureDetector(
                 onLongPress: () {
                   HapticFeedback.heavyImpact();
-                  _startNivaVoiceSession();
+                  startNivaVoiceSession();
                 },
                 child: SizedBox(
                   height: 60,
@@ -359,7 +343,7 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
 
   // --- Niva Voice Assistant ---
 
-  void _startNivaVoiceSession() {
+  void startNivaVoiceSession() {
     final nivaProvider = context.read<NivaVoiceProvider>();
     if (nivaProvider.status != NivaStatus.idle) return;
 

@@ -213,8 +213,17 @@ class NivaVoiceProvider extends ChangeNotifier {
   }) async {
     if (_status != NivaStatus.idle) return;
     if (!_service.isInitialized) {
-      debugPrint('[Niva] Service not initialized');
-      return;
+      _service.init();
+      if (!_service.isInitialized) {
+        debugPrint('[Niva] Service not initialized, check VAPI_PUBLIC_KEY');
+        // Show an error overlay if context is available
+        if (_navContext != null && _navContext!.mounted) {
+           ScaffoldMessenger.of(_navContext!).showSnackBar(
+              const SnackBar(content: Text('Niva failed to initialize. Missing API Key.')),
+           );
+        }
+        return;
+      }
     }
 
     final micStatus = await Permission.microphone.request();

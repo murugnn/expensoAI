@@ -3,13 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
-
 import 'package:expenso/models/expense.dart';
+import 'package:expenso/features/main_screen.dart';
 
 // Providers
 import 'package:expenso/providers/auth_provider.dart';
 import 'package:expenso/providers/expense_provider.dart';
 import 'package:expenso/providers/gamification_provider.dart';
+import 'package:expenso/providers/niva_voice_provider.dart';
+import 'package:expenso/providers/subscription_provider.dart';
+import 'package:expenso/providers/contact_provider.dart';
 
 // Components
 import 'package:expenso/features/add_expense/add_expense_sheet.dart';
@@ -530,21 +533,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 32),
 
                 // --- FINANCIAL HEALTH GAUGE ---
-                FinancialHealthGauge(
-                  score: health.score,
-                  grade: health.grade,
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => AgenticChatSheet(
-                        initialMessage: 'Why is my financial health score at ${health.score}?',
-                      ),
-                    );
-                  },
-                ),
+                if (expenseProvider.isLoading && expenseProvider.expenses.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(48),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                    ),
+                    child: Center(
+                      child: CircularProgressIndicator(color: cs.primary),
+                    ),
+                  )
+                else if (expenseProvider.expenses.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.monitor_heart_outlined, size: 48, color: cs.primary.withValues(alpha: 0.5)),
+                        const SizedBox(height: 16),
+                        Text(
+                          "No Health Data Yet",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "Log your first expense to unlock your\nFinancial Health Score.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.tonalIcon(
+                          onPressed: () => _showAddExpenseSheet(context),
+                          icon: const Icon(Icons.add),
+                          label: const Text("Log Expense"),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  FinancialHealthGauge(
+                    score: health.score,
+                    grade: health.grade,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                        ),
+                        builder: (ctx) => _buildHealthBottomSheet(ctx, health),
+                      );
+                    },
+                  ),
 
                 const SizedBox(height: 32),
 
@@ -593,11 +650,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 InkWell(
                   onTap: () {
                     HapticFeedback.lightImpact();
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (ctx) => const AgenticChatSheet(),
+                    final nivaProvider = context.read<NivaVoiceProvider>();
+                    if (nivaProvider.status != NivaStatus.idle) return;
+
+                    nivaProvider.setNavContext(context);
+                    nivaProvider.startCall(
+                      expenses: expenseProvider.expenses,
+                      budget: expenseProvider.currentBudget?.amount,
+                      userName: authProvider.userName,
+                      goals: goalService.goals,
+                      subscriptions: context.read<SubscriptionProvider>().subscriptions,
+                      coins: gameProvider.coins,
+                      xp: gameProvider.xp,
+                      streak: gameProvider.currentStreak,
+                      contacts: context.read<ContactProvider>().contacts,
                     );
                   },
                   borderRadius: BorderRadius.circular(16),
@@ -711,8 +777,64 @@ class _DashboardScreenState extends State<DashboardScreen> {
   );
 }
 
-// ... (Helper classes remain unchanged) ...
+  Widget _buildHealthBottomSheet(BuildContext context, FinancialHealthResult health) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.monitor_heart_rounded, color: cs.primary, size: 28),
+              const SizedBox(width: 12),
+              Text(
+                "Financial Health Score",
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildHealthRow(context, "Score", "${health.score} / 100", Icons.speed),
+          _buildHealthRow(context, "Grade", health.grade, Icons.grade),
+          _buildHealthRow(context, "Budget Status", health.budgetStatus, Icons.account_balance_wallet),
+          _buildHealthRow(context, "Daily Burn Rate", "₹${health.dailyBurnRate.toStringAsFixed(0)} / day", Icons.local_fire_department),
+          _buildHealthRow(context, "Projected Month-End", "₹${health.projectedMonthEnd.toStringAsFixed(0)}", Icons.trending_up),
+          const SizedBox(height: 16),
+          Text(
+            "Your score is automatically calculated based on budget adherence, spending consistency, and month-over-month trend.",
+            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Got it"),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHealthRow(BuildContext context, String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+          const Spacer(),
+          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
 }
+// ... (Helper classes remain unchanged) ...
 class _VerticalQuickAction extends StatelessWidget {
   final IconData icon;
   final String label;

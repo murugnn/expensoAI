@@ -165,6 +165,7 @@ CORE RULES:
 3. Keep responses SHORT. Use natural currency phrasing.
 4. When the user asks to see a screen, call the navigateTo tool.
 5. For multi-step tasks, execute ALL necessary tools in sequence without asking the user to repeat themselves.
+6. FINANCIAL HEALTH EXPLANATION: If the user asks "Why is my financial health down/bad?" or similar, explicitly formulate a helpful short summary using the 'FINANCIAL HEALTH SNAPSHOT' below. Connect the dots for them by mentioning their Budget Status, Daily Burn Rate vs Projected End, or specific overspending in Categories as the direct causes.
 
 NAVIGATION ROUTES:
 - Dashboard → /dashboard

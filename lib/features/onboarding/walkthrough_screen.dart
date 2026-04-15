@@ -39,6 +39,20 @@ class _WalkthroughScreenState extends State<WalkthroughScreen> {
       icon: Icons.auto_awesome_rounded,
     ),
     _WalkthroughPageData(
+      title: 'Press and hold to wake Niva',
+      subtitle:
+          'Long press the + floating action button anytime to talk with Niva. Niva manages your expenses via voice.',
+      image: 'assets/images/walkthrough/3.png',
+      icon: Icons.mic_rounded,
+    ),
+    _WalkthroughPageData(
+      title: 'Know your financial health',
+      subtitle:
+          'Tap the financial health score directly to see what goes right (and wrong) behind it.',
+      image: 'assets/images/walkthrough/2.png',
+      icon: Icons.monitor_heart_rounded,
+    ),
+    _WalkthroughPageData(
       title: 'Agree & continue',
       subtitle:
           'You are in control. Your data stays on-device unless you connect a backend later.',
