@@ -10,6 +10,7 @@ import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/providers/subscription_provider.dart';
 import 'package:expenso/providers/contact_provider.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
+import 'package:expenso/providers/app_settings_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -87,6 +88,7 @@ class _AgenticChatSheetState extends State<AgenticChatSheet> {
       xp: gamificationProvider.xp,
       streak: gamificationProvider.currentStreak,
       contacts: contactProvider.contacts,
+      customKey: context.read<AppSettingsProvider>().vapiKey,
     );
   }
 

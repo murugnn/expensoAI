@@ -7,6 +7,7 @@ import 'package:expenso/models/expense.dart';
 import 'package:expenso/features/main_screen.dart';
 
 // Providers
+import 'package:expenso/providers/app_settings_provider.dart';
 import 'package:expenso/providers/auth_provider.dart';
 import 'package:expenso/providers/expense_provider.dart';
 import 'package:expenso/providers/gamification_provider.dart';
@@ -35,13 +36,11 @@ import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onViewAll;
   final GlobalKey? summaryKey;
-  final GlobalKey? addExpenseKey;
 
   const DashboardScreen({
     super.key,
     required this.onViewAll,
     this.summaryKey,
-    this.addExpenseKey,
   });
 
   @override
@@ -664,6 +663,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       xp: gameProvider.xp,
                       streak: gameProvider.currentStreak,
                       contacts: context.read<ContactProvider>().contacts,
+                      customKey: context.read<AppSettingsProvider>().vapiKey,
                     );
                   },
                   borderRadius: BorderRadius.circular(16),

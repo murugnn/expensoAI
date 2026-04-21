@@ -21,18 +21,22 @@ class NivaVoiceService {
   bool get isInitialized => _initialized;
   VapiCall? get activeCall => _activeCall;
 
-  void init() {
-    if (_initialized) return;
-
-    final publicKey = dotenv.env['VAPI_PUBLIC_KEY'] ?? '';
-    if (publicKey.isEmpty) {
-      debugPrint('[Niva] VAPI_PUBLIC_KEY not found in .env');
+  void init({String? customKey}) {
+    if (customKey == null || customKey.isEmpty) {
+      debugPrint('[Niva] Custom API Key missing. Refusing to use .env key.');
+      _initialized = false;
       return;
     }
 
-    _client = VapiClient(publicKey);
+    // Force re-initialization if the client exists but the user provides a different key
+    if (_client != null) {
+      _client = null;
+      _initialized = false;
+    }
+
+    _client = VapiClient(customKey);
     _initialized = true;
-    debugPrint('[Niva] VapiClient initialized');
+    debugPrint('[Niva] VapiClient initialized with custom user key');
   }
 
   Map<String, dynamic> buildAssistantConfig({

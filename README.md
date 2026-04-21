@@ -8,25 +8,25 @@ Expenso fundamentally redesigns personal finance by destroying UI friction. It�
 
 ---
 
-## 🔴 The Problem
+## 🔴 The Problem: Financial Literacy and the Friction of Daily Management
 
-**Personal finance apps have an overwhelming friction-to-value ratio that causes user abandonment in a larger scale.**
+**Financial anxiety is a global epidemic, yet the tools designed to help us manage our money often feel like part of the problem. They are built for accountants, not for everyday people trying to build better habits.**
 
-Traditional expense trackers fail because they:
+Millions of people struggle with financial literacy and fail to maintain consistent budgeting habits because current solutions are fundamentally broken:
 
-1.  **Demand Exhaustive Manual Entry:** Typing amounts, picking categories, and selecting dates creates a 10–15 second friction cost per transaction.
-2.  **Fragment Financial Management:** Spending, bills, debts, and goals live on separate screens with no unified intelligence layer.
-3.  **Provide Static Analytics:** Charts never answer _"Why did my spending spike?"_ Users are forced to interpret raw data themselves.
-4.  **Lack Behavioral Engagement:** Financial discipline is boring. Without psychological hooks, users lose motivation and stop logging.
+1.  **Exclusion by Design (The Literacy Barrier):** Traditional apps assume you already know how to budget, categorize, and forecast. They provide raw charts but no guidance, leaving those who need financial literacy the most completely overwhelmed.
+2.  **The Overwhelming Friction of Daily Use:** Logging a quick coffee or bus ticket takes 10–15 seconds of tapping, swiping, and categorizing. This macro-friction for micro-transactions leads to rapid user abandonment. You can't improve what you stop tracking.
+3.  **Disconnected from Social Good & Community:** Managing debts with friends or splitting family bills is a social activity, yet expense trackers isolate you. They treat money as cold data rather than the flowing energy of our daily lives.
+4.  **Zero Behavioral Engagement:** Saving money is delayed gratification, which human psychology struggles with. Without real-time nudges, emotional support, and gamified incentives, people easily fall back into destructive spending patterns.
 
-## 🟢 The Solution: Zero-UI Architecture
+## 🟢 The Solution: Voice-Native Financial Empowerment
 
-**Expenso is a voice-native, agentic financial ecosystem.** It eliminates UI friction by delegating all financial management to an autonomous AI agent, **Niva**. Instead of tapping through menus, users simply _speak_ their financial reality.
+**Expenso is a conversational, agentic financial ecosystem designed for everyone.** It eliminates UI friction and the financial literacy barrier by delegating the heavy lifting to an autonomous AI agent, **Niva**. Instead of tapping through dense menus, you simply *talk* to your app like a trusted financial advisor.
 
-- **Zero-UI Voice-First:** VAPI WebRTC streams audio bidirectionally with sub-500ms latency. Say _"I spent 450 on lunch"_ and it's done in 2 seconds.
-- **Agentic Tool-Calling:** Niva doesn't just chat; she _acts_. The unified `ToolExecutor` engine features 22 registered tools (add expenses, split bills, modify goals) that the LLM invokes via structured JSON.
-- **On-Device ML Pipeline:** A privacy-first, 3-layer ML pipeline built from scratch in pure Dart for auto-categorization, anomaly detection, and trend forecasting.
-- **Behavioral Gamification:** Applied behavioral economics via X Coins, streak shields and XP leveling tied directly to your budget adherence.
+- **Zero-Friction Daily Logging:** VAPI WebRTC streams audio instantly. Say *"I spent 450 on lunch"* and the app intelligently categorizes and logs it in under 2 seconds. No typing, no menus.
+- **Empowering Financial Literacy:** Niva doesn't just show charts; she explains them. Ask *"Why is my health score low?"* and she provides localized, jargon-free advice to help you build true financial literacy over time.
+- **Agentic Social Intelligence:** Splitting a bill or recording a loan to a friend? Say *"Split the 1000 rupee dinner with Rahul"* and Niva invokes the `splitExpense` tool to manage your social debts instantly.
+- **Gamified for Good:** Applied behavioral economics turns saving into a rewarding experience. Maintain streaks, earn X Coins, and defeat 'Spending Demons' to build healthy habits that last.
 - **Offline-First:** Local Hive + SharedPreferences with Supabase cloud persistence. Soft-delete sync protocols ensure you never lose data, even offline.
 
 ---
@@ -45,7 +45,7 @@ graph TB
 
     subgraph "AI Layer"
         VAPI["VAPI WebRTC<br/>(Voice Streaming)"]
-        Groq["Groq API<br/>(Llama-3.3-70B)"]
+        Groq["Groq API / Gemini API<br/>(LLM Routing)"]
         Gemini["Google Gemini 2.5 Flash<br/>(Voice Model)"]
         TE["ToolExecutor<br/>(22 Tools)"]
     end
@@ -131,7 +131,7 @@ Financial management fails when it gets boring. Expenso solves this via applied 
 ## 📱 Application Walkthrough
 
 - **Dashboard (The Command Center):** Features a dynamic Financial Health Gauge (0-100), remaining budget visualizations, and the pulsing Niva Orb for instant voice access.
-- **Voice Interaction (WebRTC):** Tapping the orb opens a secure WebRTC pipeline. Speech is transcribed instantly, parsed by the Groq Llama-3 model, and executed via JSON tool calls in zero latency.
+- **Voice Interaction (WebRTC):** Tapping the orb opens a secure WebRTC pipeline. Speech is transcribed instantly, parsed by the Groq/Gemini models, and executed via JSON tool calls in zero latency.
 - **Agentic Chat & Insights:** Tapping the Health Gauge opens a chat interface for local RAG queries (_"Why is my health score low?"_), providing targeted corrective advice.
 - **Deep Ecosystem Tabs:** Dedicated views for Goals, Subscriptions, and Contacts, all fully manipulable via voice.
 - **Gamification Profile:** Track XP, equip Pins, and battle the active weekly Spending Demon.
@@ -167,6 +167,7 @@ SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # AI & Agentic Voice Models
 GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key
 VAPI_PUBLIC_KEY=your_vapi_public_key
 ```
 

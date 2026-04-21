@@ -9,6 +9,7 @@ import 'package:vapi/vapi.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:expenso/models/subscription.dart';
+import 'package:expenso/utils/niva_utils.dart';
 import 'package:expenso/features/goals/models/goal_model.dart';
 import 'package:expenso/models/contact.dart';
 
@@ -103,6 +104,18 @@ class NivaVoiceProvider extends ChangeNotifier {
 
       case 'error':
         debugPrint('[Niva:error] $value');
+        final errStr = value.toString().toLowerCase();
+        if (errStr.contains('credit') || errStr.contains('exceed') || errStr.contains('balance') || errStr.contains('payment')) {
+          if (_navContext != null && _navContext!.mounted) {
+             NivaUtils.showNivaConnectDialog(_navContext!, isCreditExceeded: true);
+          }
+        } else {
+          if (_navContext != null && _navContext!.mounted) {
+             ScaffoldMessenger.of(_navContext!).showSnackBar(
+                SnackBar(content: Text('Niva connection error. Please try again later.')),
+             );
+          }
+        }
         _status = NivaStatus.idle;
         _isSpeaking = false;
         WakelockPlus.disable();
@@ -210,20 +223,17 @@ class NivaVoiceProvider extends ChangeNotifier {
     required int xp,
     required int streak,
     required List<Contact> contacts,
+    required String customKey,
   }) async {
     if (_status != NivaStatus.idle) return;
+    _service.init(customKey: customKey);
     if (!_service.isInitialized) {
-      _service.init();
-      if (!_service.isInitialized) {
-        debugPrint('[Niva] Service not initialized, check VAPI_PUBLIC_KEY');
-        // Show an error overlay if context is available
-        if (_navContext != null && _navContext!.mounted) {
-           ScaffoldMessenger.of(_navContext!).showSnackBar(
-              const SnackBar(content: Text('Niva failed to initialize. Missing API Key.')),
-           );
-        }
-        return;
+      debugPrint('[Niva] Service not initialized, check customKey');
+      // Show an error overlay if context is available
+      if (_navContext != null && _navContext!.mounted) {
+         NivaUtils.showNivaConnectDialog(_navContext!);
       }
+      return;
     }
 
     final micStatus = await Permission.microphone.request();

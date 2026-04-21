@@ -6,10 +6,11 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AIService {
   final String _apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
+  final String _geminiApiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
 
   final String _model = "llama-3.1-8b-instant";
 
-  bool get hasKey => _apiKey.isNotEmpty;
+  bool get hasKey => _apiKey.isNotEmpty || _geminiApiKey.isNotEmpty;
   static const String _systemPrompt = """
 You are EXPENSO AI, a finance assistant that ONLY answers using the user's expense data provided in the prompt.
 Rules:
@@ -112,7 +113,7 @@ Data:
 ${jsonEncode(payload)}
 """;
 
-    return await _callGroq(userPrompt);
+    return await _callAI(userPrompt);
   }
 
   Future<String> chatWithAI(String userMessage, List<Expense> expenses,
@@ -143,7 +144,7 @@ Data:
 ${jsonEncode(payload)}
 """;
 
-    return await _callGroq(userPrompt);
+    return await _callAI(userPrompt);
   }
 
   String _sanitizeAIText(String text) {
@@ -162,7 +163,23 @@ ${jsonEncode(payload)}
         .replaceAll('�', '');
   }
 
-  Future<String> _callGroq(String userPrompt) async {
+  Future<String> _callAI(String userPrompt) async {
+    String? responseText;
+    
+    if (_apiKey.isNotEmpty) {
+      responseText = await _callGroq(userPrompt);
+    }
+    
+    // If Groq fails (returns error message) or key is empty, strictly fallback to Gemini
+    if ((responseText == null || responseText.startsWith("AI failed") || responseText.startsWith("AI error")) && _geminiApiKey.isNotEmpty) {
+      debugPrint("Groq unavailable or failed. Falling back to Gemini.");
+      responseText = await _callGemini(userPrompt);
+    }
+    
+    return responseText ?? "AI failed. Try again later.";
+  }
+
+  Future<String?> _callGroq(String userPrompt) async {
     try {
       final uri = Uri.parse("https://api.groq.com/openai/v1/chat/completions");
 
@@ -185,15 +202,50 @@ ${jsonEncode(payload)}
 
       if (response.statusCode != 200) {
         debugPrint("Groq error: ${response.statusCode} ${response.body}");
-        return "AI failed. Try again later.";
+        return null;
       }
 
       final data = jsonDecode(response.body);
       final content = data["choices"][0]["message"]["content"];
       return _sanitizeAIText(content.toString().trim());
     } catch (e) {
-      debugPrint("AI error: $e");
-      return "AI error. Please try again.";
+      debugPrint("Groq AI exception: $e");
+      return null;
+    }
+  }
+
+  Future<String?> _callGemini(String userPrompt) async {
+    try {
+      final uri = Uri.parse("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
+
+      final response = await http.post(
+        uri,
+        headers: {
+          "Authorization": "Bearer $_geminiApiKey",
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode({
+          "model": "gemini-1.5-flash", 
+          "temperature": 0.3,
+          "max_tokens": 700,
+          "messages": [
+            {"role": "system", "content": _systemPrompt},
+            {"role": "user", "content": userPrompt},
+          ]
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint("Gemini error: ${response.statusCode} ${response.body}");
+        return null;
+      }
+
+      final data = jsonDecode(response.body);
+      final content = data["choices"][0]["message"]["content"];
+      return _sanitizeAIText(content.toString().trim());
+    } catch (e) {
+      debugPrint("Gemini AI exception: $e");
+      return null;
     }
   }
 }

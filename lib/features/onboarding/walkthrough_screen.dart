@@ -267,6 +267,7 @@ class _WalkthroughPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
+            flex: 11,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.xl),
               child: Stack(
@@ -327,57 +328,62 @@ class _WalkthroughPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: Column(
-              key: ValueKey(data.title),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(data.title,
-                    style: context.textStyles.headlineSmall?.bold
-                        .copyWith(height: 1.1)),
-                const SizedBox(height: 12),
-                Text(
-                  data.subtitle,
-                  style: context.textStyles.bodyLarge?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    height: 1.5,
-                  ),
-                ),
-                if (data.isFinal) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest.withOpacity(0.5),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: cs.outline.withOpacity(0.2))),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.lock_outline_rounded,
-                          size: 20,
-                          color: cs.primary,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Cloud-based — your expenses are safely synced to your account.',
-                            style: context.textStyles.bodySmall?.copyWith(
-                                color: cs.onSurface,
-                                fontWeight: FontWeight.w500),
-                          ),
-                        ),
-                      ],
+          Expanded(
+            flex: 7,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: Column(
+                  key: ValueKey(data.title),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(data.title,
+                        style: context.textStyles.headlineSmall?.bold
+                            .copyWith(height: 1.1)),
+                    const SizedBox(height: 12),
+                    Text(
+                      data.subtitle,
+                      style: context.textStyles.bodyLarge?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        height: 1.5,
+                      ),
                     ),
-                  ),
-                ],
-              ],
+                    if (data.isFinal) ...[
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                            color: cs.surfaceContainerHighest.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: cs.outline.withOpacity(0.2))),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 20,
+                              color: cs.primary,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Cloud-based — your expenses are safely synced to your account.',
+                                style: context.textStyles.bodySmall?.copyWith(
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
         ],
       ),
     );

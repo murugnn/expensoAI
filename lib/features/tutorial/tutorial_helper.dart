@@ -9,7 +9,6 @@ class TutorialHelper {
     required GlobalKey chartsKey,
     required GlobalKey settingsKey,
     required GlobalKey summaryKey,
-    required GlobalKey addExpenseKey,
   }) {
     return [
        _buildTarget(
@@ -17,13 +16,6 @@ class TutorialHelper {
         keyTarget: summaryKey,
         title: "Spending Summary",
         content: "Track your total spending against your budget here.",
-        align: ContentAlign.bottom,
-      ),
-      _buildTarget(
-        identify: "add_expense_quick",
-        keyTarget: addExpenseKey,
-        title: "Quick Log",
-        content: "Tap here to quickly add a new expense.",
         align: ContentAlign.top,
       ),
       _buildTarget(

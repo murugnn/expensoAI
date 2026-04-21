@@ -41,7 +41,6 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
   final GlobalKey _chartsKey = GlobalKey();
   final GlobalKey _settingsKey = GlobalKey();
   final GlobalKey _summaryKey = GlobalKey();
-  final GlobalKey _addExpenseKey = GlobalKey();
 
   @override
   void initState() {
@@ -56,14 +55,14 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
     ));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkTutorial();
+      checkTutorialAndShow();
       context.read<AppSettingsProvider>().checkUpdate();
     });
   }
 
 
 
-  void _checkTutorial() {
+  void checkTutorialAndShow() {
     final settings = context.read<AppSettingsProvider>();
     // If not shown, show it.
     if (!settings.isTutorialShown) {
@@ -92,7 +91,6 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
 
         settingsKey: _settingsKey,
         summaryKey: _summaryKey,
-        addExpenseKey: _addExpenseKey,
       ),
       onFinish: (skipped) {
         context.read<AppSettingsProvider>().setTutorialShown(true);
@@ -248,7 +246,6 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
       DashboardScreen(
         onViewAll: () => setTab(1),
         summaryKey: _summaryKey,
-        addExpenseKey: _addExpenseKey,
       ),
       const HistoryScreen(),
       const AIInsightsScreen(),
@@ -355,6 +352,8 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
     final contactProvider = context.read<ContactProvider>();
     final goalService = context.read<GoalService>();
 
+    final appSettingsProvider = context.read<AppSettingsProvider>();
+
     nivaProvider.startCall(
       expenses: expenseProvider.expenses,
       budget: expenseProvider.currentBudget?.amount,
@@ -365,6 +364,7 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
       xp: gamificationProvider.xp,
       streak: gamificationProvider.currentStreak,
       contacts: contactProvider.contacts,
+      customKey: appSettingsProvider.vapiKey,
     );
   }
 

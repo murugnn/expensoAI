@@ -11,7 +11,7 @@ import 'package:expenso/features/settings/manage_items_screen.dart';
 import 'package:expenso/features/settings/manage_contacts_screen.dart';
 import 'package:expenso/features/settings/manage_subscriptions_screen.dart';
 import 'package:expenso/features/settings/about_screen.dart';
-import 'package:expenso/features/settings/about_screen.dart';
+import 'package:expenso/nav.dart';
 import 'package:expenso/services/supabase_config.dart';
 import 'package:expenso/features/updater/services/update_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -384,10 +384,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: !settings.isTutorialShown, 
             onChanged: (val) {
                if (val) {
-                 // User wants to SEE tutorial (val is true, so isTutorialShown should be false)
                  settings.setTutorialShown(false);
-                 // Go back to main screen to trigger it
+                 // Go back to main screen
                  context.go('/'); 
+                 // Instantly trigger
+                 Future.delayed(const Duration(milliseconds: 100), () {
+                   mainScreenKey.currentState?.checkTutorialAndShow();
+                 });
                } else {
                  // User wants to HIDE tutorial
                  settings.setTutorialShown(true);
@@ -585,6 +588,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
            // --- 4. ACCOUNT (Currency, Contacts) ---
           const _SectionHeader(title: "ACCOUNT"),
+          ListTile(
+            leading: const Icon(Icons.mic_outlined, color: Colors.deepPurpleAccent),
+            title: const Text("Niva Voice Connect"),
+            subtitle: Text(settings.vapiKey.isEmpty ? "API Key not set" : "Connected (Custom Key)"),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+            onTap: () {
+              final controller = TextEditingController(text: settings.vapiKey);
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text("Niva Voice Connect"),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "Paste your Vapi Public Key here to use Niva using your own credits.",
+                        style: TextStyle(fontSize: 13, color: Colors.white70),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: "VAPI Public Key",
+                          hintText: "Enter your public key",
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("Cancel"),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        settings.setVapiKey(controller.text.trim());
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Niva API Key updated!")),
+                        );
+                      },
+                      child: const Text("Save"),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.currency_exchange),
             title: const Text("Currency"),

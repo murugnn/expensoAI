@@ -11,7 +11,8 @@ class AppSettingsProvider extends ChangeNotifier {
   String _themeModeString = 'system'; // 'light', 'dark', 'amoled_dark'
   bool _walkthroughEnabled = true;
   bool _isTutorialShown = false;
-  bool _smsTrackingEnabled = true; // Default to true or false? Let's say true.
+  bool _smsTrackingEnabled = true;
+  String _vapiKey = '';
 
   List<String> _categories = [
     'Food',
@@ -34,6 +35,7 @@ class AppSettingsProvider extends ChangeNotifier {
   bool get walkthroughEnabled => _walkthroughEnabled;
   bool get isTutorialShown => _isTutorialShown;
   bool get smsTrackingEnabled => _smsTrackingEnabled;
+  String get vapiKey => _vapiKey;
   List<String> get categories => _categories;
   List<String> get tags => _tags;
   List<String> get contacts => _contacts;
@@ -70,7 +72,7 @@ class AppSettingsProvider extends ChangeNotifier {
     _walkthroughEnabled = _box.get('walkthrough', defaultValue: true);
     _isTutorialShown = _box.get('isTutorialShown', defaultValue: false);
     _smsTrackingEnabled = _box.get('smsTrackingEnabled', defaultValue: true);
-    _smsTrackingEnabled = _box.get('smsTrackingEnabled', defaultValue: true);
+    _vapiKey = _box.get('vapiKey', defaultValue: '');
     
     _ambientEffect = _box.get('ambientEffect', defaultValue: 'none');
     _migrateLegacySettings();
@@ -168,6 +170,12 @@ class AppSettingsProvider extends ChangeNotifier {
   Future<void> setSmsTrackingEnabled(bool enabled) async {
     _smsTrackingEnabled = enabled;
     await _box.put('smsTrackingEnabled', enabled);
+    notifyListeners();
+  }
+
+  Future<void> setVapiKey(String key) async {
+    _vapiKey = key;
+    await _box.put('vapiKey', key);
     notifyListeners();
   }
 

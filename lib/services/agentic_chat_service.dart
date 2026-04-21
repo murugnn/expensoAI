@@ -13,9 +13,10 @@ import 'package:expenso/services/financial_memory_service.dart';
 /// invoke tools and receive results before generating a final response.
 class AgenticChatService {
   final String _apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
+  final String _geminiApiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
   final String _model = 'llama-3.3-70b-versatile';
 
-  bool get hasKey => _apiKey.isNotEmpty;
+  bool get hasKey => _apiKey.isNotEmpty || _geminiApiKey.isNotEmpty;
 
   /// Build the system prompt with user's financial context.
   String _buildSystemPrompt({
@@ -185,7 +186,7 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
   }) async {
     if (!hasKey) {
       return ChatResponse(
-        text: 'API Key Missing. Please add GROQ_API_KEY to your .env file.',
+        text: 'API Key Missing. Please add GROQ_API_KEY or GEMINI_API_KEY to your .env file.',
         toolResults: [],
       );
     }
@@ -212,7 +213,16 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
     // Multi-turn loop: keep calling until we get a non-tool response
     int maxIterations = 5; // Safety limit
     for (int i = 0; i < maxIterations; i++) {
-      final response = await _callGroq(messages, tools);
+      Map<String, dynamic>? response;
+      if (_apiKey.isNotEmpty) {
+        response = await _callGroq(messages, tools);
+      }
+      
+      if (response == null && _geminiApiKey.isNotEmpty) {
+        debugPrint('[AgenticChat] Groq unavailable. Falling back to Gemini.');
+        response = await _callGemini(messages, tools);
+      }
+
       if (response == null) {
         return ChatResponse(
           text: 'Sorry, I couldn\'t process that. Please try again.',
@@ -288,7 +298,6 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
     );
   }
 
-  /// Call the Groq API.
   Future<Map<String, dynamic>?> _callGroq(
     List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>> tools,
@@ -321,7 +330,45 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
 
       return jsonDecode(response.body) as Map<String, dynamic>;
     } catch (e) {
-      debugPrint('[AgenticChat] API error: $e');
+      debugPrint('[AgenticChat] Groq API exception: $e');
+      return null;
+    }
+  }
+
+  /// Call the Gemini API via its OpenAI-compatible endpoint.
+  Future<Map<String, dynamic>?> _callGemini(
+    List<Map<String, dynamic>> messages,
+    List<Map<String, dynamic>> tools,
+  ) async {
+    try {
+      final uri = Uri.parse('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+
+      final body = {
+        'model': 'gemini-1.5-flash',
+        'temperature': 0.3,
+        'max_tokens': 1024,
+        'messages': messages,
+        'tools': tools,
+        'tool_choice': 'auto',
+      };
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $_geminiApiKey',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        debugPrint('[AgenticChat] Gemini error: ${response.statusCode} ${response.body}');
+        return null;
+      }
+
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('[AgenticChat] Gemini API exception: $e');
       return null;
     }
   }
