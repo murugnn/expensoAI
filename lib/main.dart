@@ -32,6 +32,8 @@ import 'package:expenso/providers/contact_provider.dart';
 import 'package:expenso/providers/subscription_provider.dart';
 import 'package:expenso/providers/niva_voice_provider.dart';
 import 'package:expenso/providers/agentic_chat_provider.dart';
+import 'package:expenso/providers/business_provider.dart';
+import 'package:expenso/providers/shared_provider.dart';
 import 'package:vapi/vapi.dart';
 
 void main() async {
@@ -96,6 +98,16 @@ class MyApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => AgenticChatProvider(),
+        ),
+        ChangeNotifierProxyProvider<AuthProvider, BusinessProvider>(
+          create: (_) => BusinessProvider(),
+          update: (_, auth, biz) => biz!..updateAuth(auth),
+        ),
+        ChangeNotifierProxyProvider2<AuthProvider, ExpenseProvider, SharedProvider>(
+          create: (_) => SharedProvider(),
+          update: (_, auth, expense, shared) => shared!
+            ..updateAuth(auth)
+            ..updateExpense(expense),
         ),
       ],
       child: const ExpensoApp(),

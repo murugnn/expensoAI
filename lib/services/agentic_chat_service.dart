@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,16 @@ import 'package:expenso/models/subscription.dart';
 import 'package:expenso/features/goals/models/goal_model.dart';
 import 'package:expenso/services/tool_executor.dart';
 import 'package:expenso/services/financial_memory_service.dart';
+
+enum _FailureKind { retryable, hard, network }
+
+class _ApiResult {
+  final Map<String, dynamic>? data;
+  final _FailureKind? failureKind;
+  final String? failureDetail;
+  const _ApiResult({this.data, this.failureKind, this.failureDetail});
+  bool get isSuccess => data != null;
+}
 
 /// Groq-powered agentic chat service with function calling.
 /// Implements a multi-turn conversation loop where the LLM can
@@ -26,6 +37,12 @@ class AgenticChatService {
     String currency = '₹',
     required List<GoalModel> goals,
     required List<Subscription> subscriptions,
+    String? memoryContext,
+    // Expenso for Business
+    bool isBusinessMode = false,
+    String? businessContext,
+    String? businessName,
+    String? businessType,
   }) {
     final firstName = userName?.split(' ').first ?? '';
     final healthContext = FinancialMemoryService().generateContextSummary(
@@ -88,7 +105,7 @@ CORE RULES:
 
 FINANCIAL HEALTH SNAPSHOT:
 $healthContext
-
+${memoryContext != null && memoryContext.isNotEmpty ? '\n$memoryContext\n' : ''}
 USER DATA:
 - Today: ${now.toIso8601String().substring(0, 10)}
 - Budget: ${budget ?? 'Not set'}
@@ -98,77 +115,27 @@ USER DATA:
 - Goals: ${jsonEncode(compactGoals)}
 - Subscriptions: ${jsonEncode(compactSubs)}
 
-${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
-  }
+${firstName.isNotEmpty ? "The user's name is $firstName." : ""}${isBusinessMode ? '''
 
-  /// Get the tool definitions for Groq function calling.
-  List<Map<String, dynamic>> _getToolDefinitions() {
-    // Combine existing Niva tools + new agentic tools
-    final List<Map<String, dynamic>> tools = [
-      {
-        'type': 'function',
-        'function': {
-          'name': 'addExpense',
-          'description': 'Add a single expense transaction.',
-          'parameters': {
-            'type': 'object',
-            'required': ['title', 'amount', 'category', 'date'],
-            'properties': {
-              'title': {'type': 'string', 'description': 'Title of the expense'},
-              'amount': {'type': 'number', 'description': 'Cost of the expense'},
-              'category': {'type': 'string', 'description': 'Category (Food, Transport, Shopping, Bills, Entertainment, Health, Other)'},
-              'date': {'type': 'string', 'description': 'Date in YYYY-MM-DD format'},
-            },
-          },
-        },
-      },
-      {
-        'type': 'function',
-        'function': {
-          'name': 'deleteExpense',
-          'description': 'Delete an expense by its ID.',
-          'parameters': {
-            'type': 'object',
-            'required': ['id'],
-            'properties': {
-              'id': {'type': 'string', 'description': 'UUID of the expense'},
-            },
-          },
-        },
-      },
-      {
-        'type': 'function',
-        'function': {
-          'name': 'setBudget',
-          'description': 'Set the monthly budget.',
-          'parameters': {
-            'type': 'object',
-            'required': ['amount'],
-            'properties': {
-              'amount': {'type': 'number', 'description': 'Budget amount'},
-            },
-          },
-        },
-      },
-      {
-        'type': 'function',
-        'function': {
-          'name': 'navigateTo',
-          'description': 'Navigate the app. Routes: /dashboard, /history, /ai-insights, /settings, /profile, /goals, /rewards-shop, /streak, /chat',
-          'parameters': {
-            'type': 'object',
-            'required': ['path'],
-            'properties': {
-              'path': {'type': 'string', 'description': 'Route path'},
-            },
-          },
-        },
-      },
-      // Add all agentic tools
-      ...ToolExecutor.agenticToolDefinitions,
-    ];
+====== EXPENSO FOR BUSINESS MODE ACTIVE ======
+You are now also the user's AI Accountant. The user runs a micro-business.
 
-    return tools;
+BUSINESS IDENTITY:
+- Business Name: ${businessName ?? 'Not set'}
+- Business Type: ${businessType ?? 'General'}
+
+BUSINESS RULES:
+• "sold" / "earned" / "received payment" / "customer paid" → use `addRevenue`
+• "bought stock" / "paid rent" / "business expense" → use `addBusinessExpense`
+• "bought [qty] [items]" → use `addInventoryPurchase`
+• "customer owes" / "udhaar diya" → use `markCustomerDue`
+• "I owe supplier" → use `markSupplierDue`
+• "paid" / "collected" / "due cleared" → use `markDuePaid`
+• "profit" / "kamai" → use `getDailyProfit` or `getWeeklyProfit`
+• "who owes me" → use `getPendingReceivables`
+
+BUSINESS DATA:
+${businessContext ?? 'No business data yet.'}''' : ''}''';
   }
 
   /// Send a message and get a response, handling multi-turn tool calls.
@@ -183,6 +150,12 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
     required List<GoalModel> goals,
     required List<Subscription> subscriptions,
     required Future<String?> Function(String name, Map<String, dynamic> args) toolExecutor,
+    String? memoryContext,
+    // Expenso for Business
+    bool isBusinessMode = false,
+    String? businessContext,
+    String? businessName,
+    String? businessType,
   }) async {
     if (!hasKey) {
       return ChatResponse(
@@ -198,9 +171,16 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
       currency: currency,
       goals: goals,
       subscriptions: subscriptions,
+      memoryContext: memoryContext,
+      isBusinessMode: isBusinessMode,
+      businessContext: businessContext,
+      businessName: businessName,
+      businessType: businessType,
     );
 
-    final tools = _getToolDefinitions();
+    final tools = ToolExecutor.getToolsForMode(
+      isBusinessMode ? NivaMode.business : NivaMode.personal,
+    );
     final toolResults = <ToolResult>[];
 
     // Build messages
@@ -211,28 +191,44 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
     ];
 
     // Multi-turn loop: keep calling until we get a non-tool response
-    int maxIterations = 5; // Safety limit
+    const maxIterations = 5;
     for (int i = 0; i < maxIterations; i++) {
       Map<String, dynamic>? response;
+      _FailureKind? groqFailureKind;
+      String? groqFailureDetail;
+
       if (_apiKey.isNotEmpty) {
-        response = await _callGroq(messages, tools);
+        final result = await _callGroq(messages, tools);
+        if (result.isSuccess) {
+          response = result.data;
+        } else {
+          groqFailureKind = result.failureKind;
+          groqFailureDetail = result.failureDetail;
+          // Retry once on retryable errors (rate limit / service unavailable)
+          if (groqFailureKind == _FailureKind.retryable) {
+            debugPrint('[AgenticChat] Groq retryable error. Retrying in 1s...');
+            await Future.delayed(const Duration(seconds: 1));
+            final retry = await _callGroq(messages, tools);
+            if (retry.isSuccess) response = retry.data;
+          }
+        }
       }
-      
+
       if (response == null && _geminiApiKey.isNotEmpty) {
-        debugPrint('[AgenticChat] Groq unavailable. Falling back to Gemini.');
-        response = await _callGemini(messages, tools);
+        debugPrint('[AgenticChat] Groq failed ($groqFailureKind). Falling back to Gemini.');
+        final geminiResult = await _callGemini(messages, tools);
+        response = geminiResult.data;
       }
 
       if (response == null) {
         return ChatResponse(
-          text: 'Sorry, I couldn\'t process that. Please try again.',
+          text: _buildErrorMessage(groqFailureKind, groqFailureDetail),
           toolResults: toolResults,
         );
       }
 
       final choice = response['choices']?[0];
       final message = choice?['message'];
-      final finishReason = choice?['finish_reason'];
 
       if (message == null) {
         return ChatResponse(
@@ -245,10 +241,8 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
       final toolCalls = message['tool_calls'] as List<dynamic>?;
 
       if (toolCalls != null && toolCalls.isNotEmpty) {
-        // Add assistant's tool-call message to history
         messages.add(message);
 
-        // Execute each tool call
         for (final tc in toolCalls) {
           final func = tc['function'];
           final toolName = func['name'] as String;
@@ -261,9 +255,15 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
 
           debugPrint('[AgenticChat] Tool call: $toolName($toolArgs)');
 
-          // Execute the tool
-          final result = await toolExecutor(toolName, toolArgs);
-          final resultText = result ?? 'Done';
+          // Execute with error boundary so a single bad tool doesn't crash the loop
+          String resultText;
+          try {
+            final result = await toolExecutor(toolName, toolArgs);
+            resultText = result ?? 'Done';
+          } catch (e, st) {
+            debugPrint('[AgenticChat] Tool "$toolName" threw: $e\n$st');
+            resultText = 'Error executing $toolName: ${e.toString()}. Please try again or rephrase.';
+          }
 
           toolResults.add(ToolResult(
             functionName: toolName,
@@ -271,7 +271,6 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
             result: resultText,
           ));
 
-          // Add tool result to messages
           messages.add({
             'role': 'tool',
             'tool_call_id': tc['id'],
@@ -279,11 +278,10 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
           });
         }
 
-        // Continue the loop — let the LLM generate from tool results
         continue;
       }
 
-      // No tool calls — we have a final text response
+      // No tool calls — final text response
       final content = message['content'] as String? ?? '';
       return ChatResponse(
         text: content.trim(),
@@ -291,14 +289,29 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
       );
     }
 
-    // Max iterations reached
     return ChatResponse(
       text: 'I completed the requested actions.',
       toolResults: toolResults,
     );
   }
 
-  Future<Map<String, dynamic>?> _callGroq(
+  String _buildErrorMessage(_FailureKind? kind, String? detail) {
+    switch (kind) {
+      case _FailureKind.network:
+        return 'I\'m having trouble connecting. Please check your internet connection and try again.';
+      case _FailureKind.retryable:
+        return 'The AI service is currently busy. Please try again in a moment.';
+      case _FailureKind.hard:
+        if (detail == 'api_key') {
+          return 'There\'s an issue with the API key. Please check your app settings.';
+        }
+        return 'The AI service returned an error. Please try again later.';
+      default:
+        return 'Sorry, I couldn\'t process that. Please try again.';
+    }
+  }
+
+  Future<_ApiResult> _callGroq(
     List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>> tools,
   ) async {
@@ -323,20 +336,30 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 30));
 
-      if (response.statusCode != 200) {
-        debugPrint('[AgenticChat] Groq error: ${response.statusCode} ${response.body}');
-        return null;
+      if (response.statusCode == 200) {
+        return _ApiResult(data: jsonDecode(response.body) as Map<String, dynamic>);
       }
 
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      debugPrint('[AgenticChat] Groq HTTP ${response.statusCode}: ${response.body}');
+
+      if (response.statusCode == 429 || response.statusCode == 503) {
+        return const _ApiResult(failureKind: _FailureKind.retryable);
+      }
+      if (response.statusCode == 401) {
+        return const _ApiResult(failureKind: _FailureKind.hard, failureDetail: 'api_key');
+      }
+      return const _ApiResult(failureKind: _FailureKind.hard);
+    } on TimeoutException {
+      debugPrint('[AgenticChat] Groq timeout');
+      return const _ApiResult(failureKind: _FailureKind.network);
     } catch (e) {
-      debugPrint('[AgenticChat] Groq API exception: $e');
-      return null;
+      debugPrint('[AgenticChat] Groq exception: $e');
+      return const _ApiResult(failureKind: _FailureKind.network);
     }
   }
 
   /// Call the Gemini API via its OpenAI-compatible endpoint.
-  Future<Map<String, dynamic>?> _callGemini(
+  Future<_ApiResult> _callGemini(
     List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>> tools,
   ) async {
@@ -361,15 +384,25 @@ ${firstName.isNotEmpty ? "The user's name is $firstName." : ""}''';
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 30));
 
-      if (response.statusCode != 200) {
-        debugPrint('[AgenticChat] Gemini error: ${response.statusCode} ${response.body}');
-        return null;
+      if (response.statusCode == 200) {
+        return _ApiResult(data: jsonDecode(response.body) as Map<String, dynamic>);
       }
 
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      debugPrint('[AgenticChat] Gemini HTTP ${response.statusCode}: ${response.body}');
+
+      if (response.statusCode == 429 || response.statusCode == 503) {
+        return const _ApiResult(failureKind: _FailureKind.retryable);
+      }
+      if (response.statusCode == 401) {
+        return const _ApiResult(failureKind: _FailureKind.hard, failureDetail: 'api_key');
+      }
+      return const _ApiResult(failureKind: _FailureKind.hard);
+    } on TimeoutException {
+      debugPrint('[AgenticChat] Gemini timeout');
+      return const _ApiResult(failureKind: _FailureKind.network);
     } catch (e) {
-      debugPrint('[AgenticChat] Gemini API exception: $e');
-      return null;
+      debugPrint('[AgenticChat] Gemini exception: $e');
+      return const _ApiResult(failureKind: _FailureKind.network);
     }
   }
 }

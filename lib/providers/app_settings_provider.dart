@@ -12,6 +12,11 @@ class AppSettingsProvider extends ChangeNotifier {
   bool _walkthroughEnabled = true;
   bool _isTutorialShown = false;
   bool _smsTrackingEnabled = true;
+
+  // Expenso for Business
+  String _appMode = 'personal'; // 'personal', 'business'
+  String _businessType = 'general'; // 'general', 'food_vendor', 'freelancer', 'retail', 'gig_worker'
+  String _businessName = '';
   String _vapiKey = '';
 
   List<String> _categories = [
@@ -40,6 +45,23 @@ class AppSettingsProvider extends ChangeNotifier {
   List<String> get tags => _tags;
   List<String> get contacts => _contacts;
   List<String> get wallets => _wallets;
+
+  // Expenso for Business Getters
+  String get appMode => _appMode;
+  bool get isBusinessMode => _appMode == 'business';
+  String get businessType => _businessType;
+  String get businessName => _businessName;
+
+  List<String> get businessExpenseCategories => const [
+    'Stock Purchase', 'Rent', 'Utilities', 'Transport',
+    'Salary', 'Raw Materials', 'Packaging', 'Equipment',
+    'Marketing', 'Miscellaneous',
+  ];
+
+  List<String> get revenueCategories => const [
+    'Sales', 'Services', 'Online Orders', 'Wholesale',
+    'Consultation', 'Delivery', 'Commission', 'Other Revenue',
+  ];
   
   bool _isUpdateAvailable = false;
   bool get isUpdateAvailable => _isUpdateAvailable;
@@ -74,6 +96,11 @@ class AppSettingsProvider extends ChangeNotifier {
     _smsTrackingEnabled = _box.get('smsTrackingEnabled', defaultValue: true);
     _vapiKey = _box.get('vapiKey', defaultValue: '');
     
+    // Business Mode
+    _appMode = _box.get('appMode', defaultValue: 'personal');
+    _businessType = _box.get('businessType', defaultValue: 'general');
+    _businessName = _box.get('businessName', defaultValue: '');
+
     _ambientEffect = _box.get('ambientEffect', defaultValue: 'none');
     _migrateLegacySettings();
   }
@@ -198,6 +225,26 @@ class AppSettingsProvider extends ChangeNotifier {
   Future<void> setAmbientEffect(String effect) async {
     _ambientEffect = effect;
     await _box.put('ambientEffect', effect);
+    notifyListeners();
+  }
+
+  // --- Expenso for Business ---
+
+  Future<void> setAppMode(String mode) async {
+    _appMode = mode;
+    await _box.put('appMode', mode);
+    notifyListeners();
+  }
+
+  Future<void> setBusinessType(String type) async {
+    _businessType = type;
+    await _box.put('businessType', type);
+    notifyListeners();
+  }
+
+  Future<void> setBusinessName(String name) async {
+    _businessName = name;
+    await _box.put('businessName', name);
     notifyListeners();
   }
 

@@ -50,6 +50,12 @@ class NivaVoiceService {
     required int xp,
     required int streak,
     required List<Contact> contacts,
+    String? memoryContext,
+    // Expenso for Business
+    bool isBusinessMode = false,
+    String? businessContext,
+    String? businessName,
+    String? businessType,
   }) {
     final now = DateTime.now();
 
@@ -187,11 +193,34 @@ NAVIGATION ROUTES:
 
 FINANCIAL HEALTH SNAPSHOT:
 $healthContext
-
+${memoryContext != null && memoryContext.isNotEmpty ? '\n$memoryContext\n' : ''}
 USER\'S DATA CONTEXT:
 $dataContext
 
-${firstName.isNotEmpty ? "The user's name is $firstName. Greet them naturally." : ""}''';
+${firstName.isNotEmpty ? "The user's name is $firstName. Greet them naturally." : ""}${isBusinessMode ? '''
+
+====== EXPENSO FOR BUSINESS MODE ACTIVE ======
+You are now also the user's AI Accountant. The user runs a micro-business.
+
+BUSINESS IDENTITY:
+- Business Name: ${businessName ?? 'Not set'}
+- Business Type: ${businessType ?? 'General'}
+
+CRITICAL BUSINESS RULES:
+• When user says "sold" / "earned" / "received payment" / "customer paid" / "income" → use `addRevenue`, NOT `addExpense`
+• When user says "bought stock" / "paid rent" / "business expense" / "business cost" → use `addBusinessExpense`
+• When user says "bought [quantity] [items]" or "purchased stock" → use `addInventoryPurchase`
+• When user says "customer owes" / "pending payment" / "udhaar diya" → use `markCustomerDue`
+• When user says "I owe supplier" / "take udhaar" → use `markSupplierDue`
+• When user says "Rahul paid" / "collected from" / "due cleared" → use `markDuePaid`
+• When user says "how much profit" / "kamai kitni" / "aaj ki kamai" → use `getDailyProfit` or `getWeeklyProfit`
+• When user says "who owes me" / "pending dues" → use `getPendingReceivables`
+• When user says "forecast" / "projected income" → use `forecastIncome`
+• When user says "business health" / "score" → use `getBusinessHealth`
+• When user says "export business report" → use `exportBusinessReport`
+
+BUSINESS CONTEXT:
+${businessContext ?? 'No business data yet.'}''' : ''}''';
 
     return {
       'name': 'Niva – Expenso Voice Assistant',
@@ -199,182 +228,9 @@ ${firstName.isNotEmpty ? "The user's name is $firstName. Greet them naturally." 
         'provider': 'google',
         'model': 'gemini-2.5-flash',
         'systemPrompt': systemPrompt,
-        'tools': [
-          {
-            'type': 'function',
-            'function': {
-              'name': 'navigateTo',
-              'description':
-                  'Navigate the Expenso app to a screen. Routes: /dashboard, /history, /ai-insights, /settings, /profile, /goals, /rewards-shop, /streak',
-              'parameters': {
-                'type': 'object',
-                'required': ['path'],
-                'properties': {
-                  'path': {
-                    'type': 'string',
-                    'description': 'The route path to navigate to',
-                  },
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'addGoal',
-              'description': 'Add a financial goal for the user after collecting all necessary details.',
-              'parameters': {
-                'type': 'object',
-                'required': ['title', 'targetAmount', 'targetDate'],
-                'properties': {
-                  'title': {'type': 'string', 'description': 'Title of the goal'},
-                  'targetAmount': {'type': 'number', 'description': 'Target amount for the goal'},
-                  'targetDate': {'type': 'string', 'description': 'Target date in YYYY-MM-DD format'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'addSubscription',
-              'description': 'Add a recurring subscription after collecting all necessary details.',
-              'parameters': {
-                'type': 'object',
-                'required': ['name', 'amount', 'billingCycle', 'nextBillDate'],
-                'properties': {
-                  'name': {'type': 'string', 'description': 'Name of the subscription'},
-                  'amount': {'type': 'number', 'description': 'Amount per billing cycle'},
-                  'billingCycle': {'type': 'string', 'description': 'Billing cycle. Must be "Monthly", "Weekly", or "Yearly"'},
-                  'nextBillDate': {'type': 'string', 'description': 'Next bill date in YYYY-MM-DD format'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'addExpense',
-              'description': 'Add a single expense transaction after collecting all details.',
-              'parameters': {
-                'type': 'object',
-                'required': ['title', 'amount', 'category', 'date'],
-                'properties': {
-                  'title': {'type': 'string', 'description': 'Title or description of the expense'},
-                  'amount': {'type': 'number', 'description': 'Cost of the expense'},
-                  'category': {'type': 'string', 'description': 'Category of the expense (e.g. Food, Transport, Bills)'},
-                  'date': {'type': 'string', 'description': 'Date of the expense in YYYY-MM-DD format'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'editExpense',
-              'description': 'Edit an existing expense using its ID.',
-              'parameters': {
-                'type': 'object',
-                'required': ['id', 'title', 'amount', 'category', 'date'],
-                'properties': {
-                  'id': {'type': 'string', 'description': 'The exact UUID of the expense'},
-                  'title': {'type': 'string'},
-                  'amount': {'type': 'number'},
-                  'category': {'type': 'string'},
-                  'date': {'type': 'string', 'description': 'YYYY-MM-DD'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'deleteExpense',
-              'description': 'Delete an expense using its ID.',
-              'parameters': {
-                'type': 'object',
-                'required': ['id'],
-                'properties': {
-                  'id': {'type': 'string', 'description': 'The exact UUID of the expense to delete'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'setBudget',
-              'description': 'Sets the monthly budget target.',
-              'parameters': {
-                'type': 'object',
-                'required': ['amount'],
-                'properties': {
-                  'amount': {'type': 'number', 'description': 'The numeric budget amount'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'addContact',
-              'description': 'Saves a new contact.',
-              'parameters': {
-                'type': 'object',
-                'required': ['name'],
-                'properties': {
-                  'name': {'type': 'string'},
-                  'phone': {'type': 'string'},
-                  'email': {'type': 'string'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'buyItem',
-              'description': 'Buy a gamification theme or shield. Valid items: amoled_theme, snow_theme, shield, wave_theme, light_sweep_theme',
-              'parameters': {
-                'type': 'object',
-                'required': ['itemId'],
-                'properties': {
-                  'itemId': {'type': 'string'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'equipPin',
-              'description': 'Equips a purchased pin or avatar.',
-              'parameters': {
-                'type': 'object',
-                'required': ['pinId'],
-                'properties': {
-                  'pinId': {'type': 'string'},
-                },
-              },
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'openCalendar',
-              'description': 'Opens the native date picker popup widget.',
-            },
-          },
-          {
-            'type': 'function',
-            'function': {
-              'name': 'scanBills',
-              'description': 'Opens the device camera to automatically scan and parse a receipt/bill.',
-            },
-          },
-          // Append all new agentic tool definitions
-          ...ToolExecutor.agenticToolDefinitions,
-        ],
+        'tools': ToolExecutor.getToolsForMode(
+          isBusinessMode ? NivaMode.business : NivaMode.personal,
+        ),
       },
       'voice': {
         'provider': '11labs',
@@ -413,6 +269,12 @@ ${firstName.isNotEmpty ? "The user's name is $firstName. Greet them naturally." 
     required int xp,
     required int streak,
     required List<Contact> contacts,
+    String? memoryContext,
+    // Expenso for Business
+    bool isBusinessMode = false,
+    String? businessContext,
+    String? businessName,
+    String? businessType,
   }) async {
     if (!_initialized || _client == null) {
       debugPrint('[Niva] Cannot start call — not initialized');
@@ -430,6 +292,11 @@ ${firstName.isNotEmpty ? "The user's name is $firstName. Greet them naturally." 
       xp: xp,
       streak: streak,
       contacts: contacts,
+      memoryContext: memoryContext,
+      isBusinessMode: isBusinessMode,
+      businessContext: businessContext,
+      businessName: businessName,
+      businessType: businessType,
     );
 
     debugPrint('[Niva] Starting Vapi call with inline config...');

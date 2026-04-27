@@ -9,6 +9,8 @@ class TutorialHelper {
     required GlobalKey chartsKey,
     required GlobalKey settingsKey,
     required GlobalKey summaryKey,
+    required GlobalKey askNivaKey,
+    required GlobalKey modeSwitcherKey,
   }) {
     return [
        _buildTarget(
@@ -19,10 +21,24 @@ class TutorialHelper {
         align: ContentAlign.top,
       ),
       _buildTarget(
-        identify: "home",
-        keyTarget: homeKey,
-        title: "Dashboard",
-        content: "Your central hub for all activity.",
+        identify: "ask_niva",
+        keyTarget: askNivaKey,
+        title: "Ask Niva AI",
+        content: "Tap here to chat with Niva, your intelligent financial proxy. She can analyze expenses, answer budget questions, and log transactions automatically.",
+        align: ContentAlign.bottom,
+      ),
+      _buildTarget(
+        identify: "mode_switcher",
+        keyTarget: modeSwitcherKey,
+        title: "Business Mode",
+        content: "Toggle between Personal and Business workspaces. Expenso for Business lets you track sales, manage customer dues, and view business analytics separately.",
+        align: ContentAlign.bottom,
+      ),
+      _buildTarget(
+        identify: "fab",
+        keyTarget: fabKey,
+        title: "Actions & Niva Voice",
+        content: "Tap to scan receipts or add expenses. LONG PRESS this button from anywhere in the app to activate Niva Voice Assistant and log transactions completely hands-free!",
         align: ContentAlign.top,
       ),
       _buildTarget(
@@ -30,13 +46,6 @@ class TutorialHelper {
         keyTarget: historyKey,
         title: "History",
         content: "Review past transactions.",
-        align: ContentAlign.top,
-      ),
-      _buildTarget(
-        identify: "fab",
-        keyTarget: fabKey,
-        title: "Actions",
-        content: "Scan, Add, or Budget from anywhere.",
         align: ContentAlign.top,
       ),
       _buildTarget(

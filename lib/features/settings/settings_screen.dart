@@ -96,6 +96,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showBusinessSetupSheet(BuildContext context) {
+    final settings = context.read<AppSettingsProvider>();
+    final nameController = TextEditingController(text: settings.businessName);
+    String selectedType = settings.businessType;
+
+    final businessTypes = {
+      'general': 'General Business',
+      'food_vendor': 'Food / Chai / Tea Stall',
+      'freelancer': 'Freelancer / Consultant',
+      'retail': 'Retail / Kirana Store',
+      'gig_worker': 'Gig Worker (Delivery / Rides)',
+    };
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 24, right: 24, top: 24,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text("Business Profile",
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              TextField(
+                controller: nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: "Business Name",
+                  hintText: "e.g. Rahul's Tea Shop",
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: selectedType,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: "Business Type",
+                ),
+                items: businessTypes.entries.map((e) =>
+                    DropdownMenuItem(value: e.key, child: Text(e.value))
+                ).toList(),
+                onChanged: (val) {
+                  if (val != null) setSheetState(() => selectedType = val);
+                },
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  onPressed: () {
+                    settings.setBusinessName(nameController.text.trim());
+                    settings.setBusinessType(selectedType);
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Business profile saved!")),
+                    );
+                  },
+                  child: const Text("Save Profile", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showCurrencyPicker(BuildContext context) {
     showDialog(
       context: context,
@@ -231,197 +320,205 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(indent: 16, endIndent: 16),
 
-          // --- 1. STRUCTURE (Categories, Tags, Wallets) ---
-          const _SectionHeader(title: "STRUCTURE"),
-          ListTile(
-            leading: const Icon(Icons.category_outlined),
-            title: const Text("Categories"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ManageItemsScreen(
-                  title: "Category",
-                  items: settings.categories,
-                  onAdd: (val) => settings.addCategory(val),
-                  onDelete: (val) => settings.removeCategory(val),
-                ),
-              ),
+          if (settings.isBusinessMode) ...[
+            const _SectionHeader(title: "BUSINESS"),
+            ListTile(
+              leading: Icon(Icons.storefront_rounded, color: Theme.of(context).colorScheme.primary),
+              title: Text(settings.businessName.isEmpty ? "Setup Business Profile" : "Edit Business Profile"),
+              subtitle: settings.businessName.isNotEmpty ? Text(settings.businessName) : null,
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => _showBusinessSetupSheet(context),
             ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.label_outline),
-            title: const Text("Tags"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ManageItemsScreen(
-                  title: "Tag",
-                  items: settings.tags,
-                  onAdd: (val) => settings.addTag(val),
-                  onDelete: (val) => settings.removeTag(val),
-                ),
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.account_balance_wallet_outlined),
-            title: const Text("Wallets"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ManageItemsScreen(
-                  title: "Wallet",
-                  items: settings.wallets,
-                  onAdd: (val) => settings.addWallet(val),
-                  onDelete: (val) => settings.removeWallet(val),
-                ),
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.track_changes_outlined),
-            title: const Text("Goals"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => context.push('/goals'),
-          ),
+          ],
 
-          // --- 2. BUDGET (Daily Goal, Subscriptions) ---
-          const _SectionHeader(title: "BUDGET"),
-          
-          // Daily Goal Card
-           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            elevation: 0,
-            color: Theme.of(context).colorScheme.surfaceContainer,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5))
+          // --- PERSONAL MODE ONLY SECTIONS ---
+          if (!settings.isBusinessMode) ...[
+            // --- 1. STRUCTURE (Categories, Tags, Wallets) ---
+            const _SectionHeader(title: "STRUCTURE"),
+            ListTile(
+              leading: const Icon(Icons.category_outlined),
+              title: const Text("Categories"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ManageItemsScreen(
+                    title: "Category",
+                    items: settings.categories,
+                    onAdd: (val) => settings.addCategory(val),
+                    onDelete: (val) => settings.removeCategory(val),
+                  ),
+                ),
+              ),
             ),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: game.canChangeBudget
-                  ? () => _showBudgetDialog(context, game, settings.currencySymbol)
-                  : () {
-                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Weekly budget change limit reached."))
-                     );
-                  },
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(12)),
-                      child: Icon(Icons.track_changes,
-                          color: Theme.of(context).colorScheme.onPrimaryContainer, size: 20),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Daily Goal",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16)),
-                          Text(
-                              "${settings.currencySymbol}${game.dailyBudget.toInt()} / day",
-                              style: TextStyle(
-                                  color: Theme.of(context).colorScheme.primary, 
-                                  fontWeight: FontWeight.bold)),
-                        ],
+            ListTile(
+              leading: const Icon(Icons.label_outline),
+              title: const Text("Tags"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ManageItemsScreen(
+                    title: "Tag",
+                    items: settings.tags,
+                    onAdd: (val) => settings.addTag(val),
+                    onDelete: (val) => settings.removeTag(val),
+                  ),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet_outlined),
+              title: const Text("Wallets"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ManageItemsScreen(
+                    title: "Wallet",
+                    items: settings.wallets,
+                    onAdd: (val) => settings.addWallet(val),
+                    onDelete: (val) => settings.removeWallet(val),
+                  ),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.track_changes_outlined),
+              title: const Text("Goals"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => context.push('/goals'),
+            ),
+
+            // --- 2. BUDGET (Daily Goal, Subscriptions) ---
+            const _SectionHeader(title: "BUDGET"),
+            
+            // Daily Goal Card
+             Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              elevation: 0,
+              color: Theme.of(context).colorScheme.surfaceContainer,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5))
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: game.canChangeBudget
+                    ? () => _showBudgetDialog(context, game, settings.currencySymbol)
+                    : () {
+                       ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Weekly budget change limit reached."))
+                       );
+                    },
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(12)),
+                        child: Icon(Icons.track_changes,
+                            color: Theme.of(context).colorScheme.onPrimaryContainer, size: 20),
                       ),
-                    ),
-                    Icon(Icons.edit_outlined, size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant)
-                  ],
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text("Daily Goal",
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 16)),
+                            Text(
+                                "${settings.currencySymbol}${game.dailyBudget.toInt()} / day",
+                                style: TextStyle(
+                                    color: Theme.of(context).colorScheme.primary, 
+                                    fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.edit_outlined, size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant)
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
 
-          ListTile(
-            leading: const Icon(Icons.subscriptions_outlined),
-            title: const Text("Subscriptions"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const ManageSubscriptionsScreen(),
+            ListTile(
+              leading: const Icon(Icons.subscriptions_outlined),
+              title: const Text("Subscriptions"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ManageSubscriptionsScreen(),
+                ),
               ),
             ),
-          ),
 
-          // --- 3. GAMIFICATION ---
-          const _SectionHeader(title: "GAMIFICATION"),
-          ListTile(
-            leading: const Icon(Icons.shopping_bag_outlined, color: Colors.orange),
-            title: const Text("Rewards Shop"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => context.push('/rewards-shop'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.group_add_outlined, color: Colors.blueAccent),
-            title: const Text("Refer & Earn"),
-            subtitle: const Text("Get 3000 coins"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => context.push('/settings/referral'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.local_fire_department_outlined, color: Colors.redAccent),
-            title: const Text("Streak & Rewards"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () => context.push('/streak'),
-          ),
+            // --- 3. GAMIFICATION ---
+            const _SectionHeader(title: "GAMIFICATION"),
+            ListTile(
+              leading: const Icon(Icons.shopping_bag_outlined, color: Colors.orange),
+              title: const Text("Rewards Shop"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => context.push('/rewards-shop'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.group_add_outlined, color: Colors.blueAccent),
+              title: const Text("Refer & Earn"),
+              subtitle: const Text("Get 3000 coins"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => context.push('/settings/referral'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.local_fire_department_outlined, color: Colors.redAccent),
+              title: const Text("Streak & Rewards"),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () => context.push('/streak'),
+            ),
 
-          SwitchListTile(
-            title: const Text("Show Tutorial"),
-            subtitle: const Text("Re-plays the overlay guide"),
-            value: !settings.isTutorialShown, 
-            onChanged: (val) {
-               if (val) {
-                 settings.setTutorialShown(false);
-                 // Go back to main screen
-                 context.go('/'); 
-                 // Instantly trigger
-                 Future.delayed(const Duration(milliseconds: 100), () {
-                   mainScreenKey.currentState?.checkTutorialAndShow();
-                 });
-               } else {
-                 // User wants to HIDE tutorial
-                 settings.setTutorialShown(true);
-               }
-            },
-            secondary: const Icon(Icons.help_outline),
-          ),
-
-
-          
-          SwitchListTile(
-            title: const Text("SMS Auto-Tracking"),
-            subtitle: const Text("Detect expenses from bank SMS"),
-            value: settings.smsTrackingEnabled,
-            onChanged: (val) async {
-              settings.setSmsTrackingEnabled(val);
-              if (val) {
-                 final granted = await SmsService().requestPermissions();
-                 if (!granted && context.mounted) {
-                   settings.setSmsTrackingEnabled(false); // Revert if denied
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     const SnackBar(content: Text("SMS permission is required for this feature.")),
-                   );
+            SwitchListTile(
+              title: const Text("Show Tutorial"),
+              subtitle: const Text("Re-plays the overlay guide"),
+              value: !settings.isTutorialShown, 
+              onChanged: (val) {
+                 if (val) {
+                   settings.setTutorialShown(false);
+                   context.go('/'); 
+                   Future.delayed(const Duration(milliseconds: 100), () {
+                     mainScreenKey.currentState?.checkTutorialAndShow();
+                   });
                  } else {
-                   // Granted! Start listening now.
-                   SmsService().startListening();
+                   settings.setTutorialShown(true);
                  }
-              }
-            },
-            secondary: const Icon(Icons.sms_outlined),
-          ),
+              },
+              secondary: const Icon(Icons.help_outline),
+            ),
+
+            SwitchListTile(
+              title: const Text("SMS Auto-Tracking"),
+              subtitle: const Text("Detect expenses from bank SMS"),
+              value: settings.smsTrackingEnabled,
+              onChanged: (val) async {
+                settings.setSmsTrackingEnabled(val);
+                if (val) {
+                   final granted = await SmsService().requestPermissions();
+                   if (!granted && context.mounted) {
+                     settings.setSmsTrackingEnabled(false);
+                     ScaffoldMessenger.of(context).showSnackBar(
+                       const SnackBar(content: Text("SMS permission is required for this feature.")),
+                     );
+                   } else {
+                     SmsService().startListening();
+                   }
+                }
+              },
+              secondary: const Icon(Icons.sms_outlined),
+            ),
+          ], // end personal-only sections
           
 
 

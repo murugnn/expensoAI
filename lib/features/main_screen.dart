@@ -5,6 +5,10 @@ import 'package:expenso/features/dashboard/dashboard_screen.dart';
 import 'package:expenso/features/onboarding/history/history_screen.dart';
 import 'package:expenso/features/ai_insights/ai_insights_screen.dart';
 import 'package:expenso/features/settings/settings_screen.dart';
+import 'package:expenso/features/business/screens/business_transactions_screen.dart';
+import 'package:expenso/features/business/screens/business_insights_screen.dart';
+import 'package:expenso/features/business/sheets/add_revenue_sheet.dart';
+import 'package:expenso/features/business/sheets/add_due_sheet.dart';
 import 'package:expenso/features/add_expense/add_expense_sheet.dart';
 import 'package:expenso/features/add_expense/add_bill_sheet.dart';
 import 'package:expenso/services/receipt_scanner_service.dart';
@@ -20,6 +24,7 @@ import 'package:expenso/widgets/niva_orb_widget.dart';
 import 'package:expenso/providers/niva_voice_provider.dart';
 import 'package:expenso/providers/subscription_provider.dart';
 import 'package:expenso/providers/contact_provider.dart';
+import 'package:expenso/providers/business_provider.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -41,6 +46,8 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
   final GlobalKey _chartsKey = GlobalKey();
   final GlobalKey _settingsKey = GlobalKey();
   final GlobalKey _summaryKey = GlobalKey();
+  final GlobalKey _askNivaKey = GlobalKey();
+  final GlobalKey _modeSwitcherKey = GlobalKey();
 
   @override
   void initState() {
@@ -91,6 +98,8 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
 
         settingsKey: _settingsKey,
         summaryKey: _summaryKey,
+        askNivaKey: _askNivaKey,
+        modeSwitcherKey: _modeSwitcherKey,
       ),
       onFinish: (skipped) {
         context.read<AppSettingsProvider>().setTutorialShown(true);
@@ -167,8 +176,51 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
                 alignment: Alignment.bottomCenter,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: [
-
+                  children: context.read<AppSettingsProvider>().isBusinessMode ? [
+                    _buildActionCard(
+                      context,
+                      title: "Add Sale / Revenue",
+                      subtitle: "Record a customer payment",
+                      icon: Icons.point_of_sale_rounded,
+                      color: Colors.greenAccent,
+                      onTap: () {
+                        _closeMenu();
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => const AddRevenueSheet(),
+                        );
+                      },
+                    ),
+                    _buildActionCard(
+                      context,
+                      title: "Add Expense",
+                      subtitle: "Log a business cost",
+                      icon: Icons.receipt_long,
+                      color: Colors.orangeAccent,
+                      onTap: () {
+                        _closeMenu();
+                        _showAddExpenseSheet(context);
+                      },
+                    ),
+                    _buildActionCard(
+                      context,
+                      title: "Record Due",
+                      subtitle: "Pending payment/receivable",
+                      icon: Icons.pending_actions_rounded,
+                      color: Colors.purpleAccent,
+                      onTap: () {
+                        _closeMenu();
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => const AddDueSheet(),
+                        );
+                      },
+                    ),
+                  ] : [
                    _buildActionCard(
                       context,
                       title: "Add Expense",
@@ -241,11 +293,28 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isBusinessMode = context.watch<AppSettingsProvider>().isBusinessMode;
     
-    final screens = [
+    final screens = isBusinessMode ? [
       DashboardScreen(
         onViewAll: () => setTab(1),
+        onNavigateToInsights: () => setTab(2),
+        // Do not pass _summaryKey here, to avoid "Multiple widgets used the same GlobalKey" 
+        // crash during the AnimatedSwitcher transition between modes.
+        summaryKey: null,
+        askNivaKey: null, // Niva voice is only in personal mode right now
+        modeSwitcherKey: _modeSwitcherKey,
+      ),
+      const BusinessTransactionsScreen(),
+      const BusinessInsightsScreen(),
+      const SettingsScreen(),
+    ] : [
+      DashboardScreen(
+        onViewAll: () => setTab(1),
+        onNavigateToInsights: () => setTab(2),
         summaryKey: _summaryKey,
+        askNivaKey: _askNivaKey,
+        modeSwitcherKey: _modeSwitcherKey,
       ),
       const HistoryScreen(),
       const AIInsightsScreen(),
@@ -258,9 +327,22 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
           extendBody: true, // Crucial for the curve effect overlap
           body: Stack(
             children: [
-              IndexedStack(
-                index: _selectedIndex,
-                children: screens,
+              // Clean simple fade transition when switching modes
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: child,
+                  );
+                },
+                child: IndexedStack(
+                  key: ValueKey<bool>(isBusinessMode),
+                  index: _selectedIndex,
+                  children: screens,
+                ),
               ),
               if (context.watch<AppSettingsProvider>().isUpdateAvailable)
                  Positioned(
@@ -281,8 +363,7 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
                     },
                   ),
                  ),
-              // Niva Transcript Bubble handled by GlobalNivaOverlay
-            ],
+                  ],
           ),
           floatingActionButton: Consumer<NivaVoiceProvider>(
             builder: (context, provider, child) {
@@ -324,18 +405,17 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildNavItem(0, Icons.home_filled, key: _homeKey),
-                _buildNavItem(1, Icons.history_rounded, key: _historyKey),
+                _buildNavItem(1, isBusinessMode ? Icons.receipt_long : Icons.history_rounded, key: _historyKey),
                 const SizedBox(width: 48), // Space for FAB
-                _buildNavItem(2, Icons.bar_chart_rounded, key: _chartsKey),
+                _buildNavItem(2, isBusinessMode ? Icons.insights : Icons.bar_chart_rounded, key: _chartsKey),
                 _buildNavItem(3, Icons.settings_rounded, key: _settingsKey),
               ],
             ),
           ),
         ),
-        
 
       ],
-    );
+    ); // Stack
   }
 
   // --- Niva Voice Assistant ---
@@ -354,6 +434,19 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
 
     final appSettingsProvider = context.read<AppSettingsProvider>();
 
+    // Expenso for Business context
+    String? businessContext;
+    if (appSettingsProvider.isBusinessMode) {
+      try {
+        final bizProvider = context.read<BusinessProvider>();
+        businessContext = bizProvider.generateBusinessContext(
+          appSettingsProvider.currencySymbol,
+        );
+      } catch (e) {
+        debugPrint('[MainScreen] BusinessProvider not available: $e');
+      }
+    }
+
     nivaProvider.startCall(
       expenses: expenseProvider.expenses,
       budget: expenseProvider.currentBudget?.amount,
@@ -365,6 +458,10 @@ class MainScreenState extends State<MainScreen> with SingleTickerProviderStateMi
       streak: gamificationProvider.currentStreak,
       contacts: contactProvider.contacts,
       customKey: appSettingsProvider.vapiKey,
+      isBusinessMode: appSettingsProvider.isBusinessMode,
+      businessContext: businessContext,
+      businessName: appSettingsProvider.businessName,
+      businessType: appSettingsProvider.businessType,
     );
   }
 

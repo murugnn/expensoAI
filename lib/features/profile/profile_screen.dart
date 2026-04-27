@@ -12,6 +12,9 @@ import 'package:expenso/providers/expense_provider.dart';
 import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/theme.dart';
 import 'dart:ui';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:expenso/services/storage_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -45,6 +48,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final auth = context.read<AuthProvider>();
     _nameController.text = auth.userName;
     _selectedAvatar = auth.userAvatar;
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'Select Image Source',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded),
+              title: const Text('Camera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: source, imageQuality: 50);
+    if (pickedFile == null) return;
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Uploading avatar...')),
+    );
+
+    final storageService = StorageService();
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null) return;
+
+    final publicUrl = await storageService.uploadImage(
+      file: File(pickedFile.path),
+      bucket: 'avatars',
+      pathPrefix: 'profiles/${user.id}',
+    );
+
+    if (publicUrl != null && mounted) {
+      setState(() => _selectedAvatar = publicUrl);
+      await _saveProfile(context);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to upload avatar.')),
+        );
+      }
+    }
   }
 
   @override
@@ -193,6 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 presets: _avatars,
                 selected: _selectedAvatar,
                 onSelected: (value) => setState(() => _selectedAvatar = value),
+                onPickCustom: _pickAndUploadAvatar,
               ),
 
               const SizedBox(height: 28),
@@ -694,10 +765,15 @@ class _AvatarPicker extends StatelessWidget {
   final List<String> presets;
   final String? selected;
   final ValueChanged<String> onSelected;
-  const _AvatarPicker(
-      {required this.presets,
-      required this.selected,
-      required this.onSelected});
+  final VoidCallback onPickCustom;
+
+  const _AvatarPicker({
+    required this.presets,
+    required this.selected,
+    required this.onSelected,
+    required this.onPickCustom,
+  });
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -705,10 +781,58 @@ class _AvatarPicker extends StatelessWidget {
       height: 92,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: presets.length,
+        itemCount: presets.length + 1,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, i) {
-          final path = presets[i];
+          if (i == 0) {
+            // Camera Button
+            final isCustomSelected = selected != null && !presets.contains(selected);
+            return GestureDetector(
+              onTap: onPickCustom,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: isCustomSelected ? cs.primary : Colors.transparent,
+                      width: 3),
+                  boxShadow: isCustomSelected
+                      ? [
+                          BoxShadow(
+                              color: cs.primary.withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4))
+                        ]
+                      : [],
+                ),
+                child: ClipOval(
+                  child: isCustomSelected
+                      ? Image.network(
+                          selected!,
+                          width: 72,
+                          height: 72,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                                width: 70,
+                                height: 70,
+                                color: cs.surfaceContainerHighest,
+                                child: Icon(Icons.person, color: cs.onSurfaceVariant));
+                          },
+                        )
+                      : Container(
+                          width: 72,
+                          height: 72,
+                          color: cs.surfaceContainerHighest,
+                          child: Icon(Icons.camera_alt_outlined, color: cs.onSurfaceVariant, size: 28),
+                        ),
+                ),
+              ),
+            );
+          }
+          final path = presets[i - 1];
           final isSelected = path == selected;
           return GestureDetector(
             onTap: () {
@@ -766,6 +890,9 @@ class ProfileWithPinWidget extends StatelessWidget {
 
   ImageProvider _getImage() {
     if (imagePath != null && imagePath!.isNotEmpty) {
+      if (imagePath!.startsWith('http')) {
+        return NetworkImage(imagePath!);
+      }
       return AssetImage(imagePath!);
     }
     return const AssetImage('assets/images/avatars/1.png');

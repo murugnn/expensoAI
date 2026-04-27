@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:expenso/providers/agentic_chat_provider.dart';
+import 'package:expenso/services/niva_suggestions_service.dart';
 import 'package:expenso/providers/niva_voice_provider.dart';
 import 'package:expenso/services/agentic_chat_service.dart';
 import 'package:expenso/providers/expense_provider.dart';
@@ -195,29 +196,12 @@ class _AgenticChatSheetState extends State<AgenticChatSheet> {
 
           Expanded(
             child: chatProvider.messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(LucideIcons.sparkles,
-                            size: 64,
-                            color: theme.colorScheme.primary.withOpacity(0.5)),
-                        const SizedBox(height: 16),
-                        Text(
-                          'How can I help you today?',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.6),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Try asking: "I bought a coffee for 5 euros"',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.4),
-                          ),
-                        ),
-                      ],
-                    ).animate().fadeIn(duration: 800.ms).slideY(begin: 0.2),
+                ? _EmptyStateWithSuggestions(
+                    suggestions: chatProvider.suggestions,
+                    onSuggestionTap: (prompt) {
+                      context.read<AgenticChatProvider>().sendMessage(prompt);
+                      _scrollToBottom();
+                    },
                   )
                 : ListView.builder(
                     controller: _scrollController,
@@ -422,6 +406,102 @@ class _AgenticChatSheetState extends State<AgenticChatSheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _EmptyStateWithSuggestions
+//
+// Shown when the chat has no messages. Displays the greeting placeholder and,
+// if proactive suggestions are available, a horizontal row of tappable chips.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EmptyStateWithSuggestions extends StatelessWidget {
+  final List<NivaSuggestion> suggestions;
+  final ValueChanged<String> onSuggestionTap;
+
+  const _EmptyStateWithSuggestions({
+    required this.suggestions,
+    required this.onSuggestionTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // ── Greeting ───────────────────────────────────────────────────────
+        Column(
+          children: [
+            Icon(
+              LucideIcons.sparkles,
+              size: 64,
+              color: theme.colorScheme.primary.withOpacity(0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'How can I help you today?',
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Try asking: "I bought a coffee for 5 euros"',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.4),
+              ),
+            ),
+          ],
+        ).animate().fadeIn(duration: 800.ms).slideY(begin: 0.2),
+
+        // ── Suggestions chips ──────────────────────────────────────────────
+        if (suggestions.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Niva noticed something',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.45),
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 40,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              itemCount: suggestions.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final suggestion = suggestions[index];
+                return ActionChip(
+                  label: Text(suggestion.text),
+                  labelStyle: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  backgroundColor: theme.colorScheme.primary.withOpacity(0.08),
+                  side: BorderSide(
+                    color: theme.colorScheme.primary.withOpacity(0.25),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  onPressed: () => onSuggestionTap(suggestion.actionPrompt),
+                ).animate(delay: Duration(milliseconds: 80 * index))
+                    .fadeIn(duration: 400.ms)
+                    .slideX(begin: 0.1);
+              },
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

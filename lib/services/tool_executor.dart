@@ -5,12 +5,19 @@ import 'package:uuid/uuid.dart';
 
 import 'package:expenso/models/expense.dart';
 import 'package:expenso/models/subscription.dart';
+import 'package:expenso/models/business_transaction.dart';
+import 'package:expenso/models/business_due.dart';
 import 'package:expenso/providers/auth_provider.dart';
 import 'package:expenso/providers/expense_provider.dart';
 import 'package:expenso/providers/subscription_provider.dart';
 import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/providers/contact_provider.dart';
 import 'package:expenso/providers/app_settings_provider.dart';
+import 'package:expenso/providers/business_provider.dart';
+import 'package:expenso/providers/shared_provider.dart';
+import 'package:expenso/models/shared_room.dart';
+import 'package:expenso/models/shared_expense.dart';
+import 'package:expenso/services/shared_service.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:expenso/features/goals/models/goal_model.dart';
 import 'package:expenso/services/currency_service.dart';
@@ -20,6 +27,9 @@ import 'package:expenso/models/shop_item.dart';
 import 'package:go_router/go_router.dart';
 import 'package:expenso/nav.dart';
 import 'package:expenso/features/settings/services/export_service.dart';
+
+/// Identifies the operational mode for Niva — determines which tool set is exposed.
+enum NivaMode { personal, business }
 
 /// Shared tool executor used by both VAPI voice (NivaVoiceProvider)
 /// and Groq text chat (AgenticChatProvider).
@@ -89,6 +99,57 @@ class ToolExecutor {
         return _handleModifyGoal(args, context);
       case 'deleteSubscription':
         return _handleDeleteSubscription(args, context);
+
+      // ============================================================
+      // EXPENSO FOR BUSINESS TOOLS
+      // ============================================================
+      case 'addRevenue':
+        return _handleAddRevenue(args, context);
+      case 'addBusinessExpense':
+        return _handleAddBusinessExpense(args, context);
+      case 'addInventoryPurchase':
+        return _handleAddInventoryPurchase(args, context);
+      case 'markCustomerDue':
+        return _handleMarkCustomerDue(args, context);
+      case 'markSupplierDue':
+        return _handleMarkSupplierDue(args, context);
+      case 'markDuePaid':
+        return _handleMarkDuePaid(args, context);
+      case 'getDailyProfit':
+        return _handleGetDailyProfit(context);
+      case 'getWeeklyProfit':
+        return _handleGetWeeklyProfit(context);
+      case 'getMonthlyCashFlow':
+        return _handleGetMonthlyCashFlow(context);
+      case 'getPendingReceivables':
+        return _handleGetPendingReceivables(context);
+      case 'getTopExpenseCategories':
+        return _handleGetTopExpenseCategories(args, context);
+      case 'getTopRevenueCategories':
+        return _handleGetTopRevenueCategories(args, context);
+      case 'getBusinessHealth':
+        return _handleGetBusinessHealth(context);
+      case 'forecastIncome':
+        return _handleForecastIncome(context);
+      case 'exportBusinessReport':
+        return _handleExportBusinessReport(args, context);
+
+      // ============================================================
+      // SHARED EXPENSES (group finance) TOOLS
+      // ============================================================
+      case 'createSharedRoom':
+        return _handleCreateSharedRoom(args, context);
+      case 'joinSharedRoom':
+        return _handleJoinSharedRoom(args, context);
+      case 'addSharedExpense':
+        return _handleAddSharedExpense(args, context);
+      case 'getRoomBalances':
+        return _handleGetRoomBalances(args, context);
+      case 'suggestSettlement':
+        return _handleSuggestSettlement(args, context);
+      case 'settleSharedExpense':
+        return _handleSettleSharedExpense(args, context);
+
       default:
         debugPrint('[ToolExecutor] Unknown function: $name');
         return 'Unknown function: $name';
@@ -721,6 +782,182 @@ class ToolExecutor {
   // TOOL DEFINITIONS (for LLM function calling schemas)
   // ============================================================
 
+  /// Core CRUD tools available in every mode (personal and business).
+  /// Covers navigation, expense management, goals, subscriptions, budget,
+  /// contacts, gamification, calendar, and bill scanning.
+  static List<Map<String, dynamic>> get coreToolDefinitions => [
+    {
+      'type': 'function',
+      'function': {
+        'name': 'navigateTo',
+        'description': 'Navigate the Expenso app to a screen. Routes: /dashboard, /history, /ai-insights, /settings, /profile, /goals, /rewards-shop, /streak, /chat',
+        'parameters': {
+          'type': 'object',
+          'required': ['path'],
+          'properties': {
+            'path': {'type': 'string', 'description': 'The route path to navigate to'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addGoal',
+        'description': 'Add a financial goal for the user after collecting all necessary details.',
+        'parameters': {
+          'type': 'object',
+          'required': ['title', 'targetAmount', 'targetDate'],
+          'properties': {
+            'title': {'type': 'string', 'description': 'Title of the goal'},
+            'targetAmount': {'type': 'number', 'description': 'Target amount for the goal'},
+            'targetDate': {'type': 'string', 'description': 'Target date in YYYY-MM-DD format'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addSubscription',
+        'description': 'Add a recurring subscription after collecting all necessary details.',
+        'parameters': {
+          'type': 'object',
+          'required': ['name', 'amount', 'billingCycle', 'nextBillDate'],
+          'properties': {
+            'name': {'type': 'string', 'description': 'Name of the subscription'},
+            'amount': {'type': 'number', 'description': 'Amount per billing cycle'},
+            'billingCycle': {'type': 'string', 'description': 'Billing cycle: "Monthly", "Weekly", or "Yearly"'},
+            'nextBillDate': {'type': 'string', 'description': 'Next bill date in YYYY-MM-DD format'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addExpense',
+        'description': 'Add a single expense transaction after collecting all details.',
+        'parameters': {
+          'type': 'object',
+          'required': ['title', 'amount', 'category', 'date'],
+          'properties': {
+            'title': {'type': 'string', 'description': 'Title or description of the expense'},
+            'amount': {'type': 'number', 'description': 'Cost of the expense'},
+            'category': {'type': 'string', 'description': 'Category (e.g. Food, Transport, Bills, Shopping, Health, Entertainment, Other)'},
+            'date': {'type': 'string', 'description': 'Date of the expense in YYYY-MM-DD format'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'editExpense',
+        'description': 'Edit an existing expense using its ID.',
+        'parameters': {
+          'type': 'object',
+          'required': ['id', 'title', 'amount', 'category', 'date'],
+          'properties': {
+            'id': {'type': 'string', 'description': 'The exact UUID of the expense to edit'},
+            'title': {'type': 'string'},
+            'amount': {'type': 'number'},
+            'category': {'type': 'string'},
+            'date': {'type': 'string', 'description': 'YYYY-MM-DD'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'deleteExpense',
+        'description': 'Delete an expense using its ID.',
+        'parameters': {
+          'type': 'object',
+          'required': ['id'],
+          'properties': {
+            'id': {'type': 'string', 'description': 'The exact UUID of the expense to delete'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'setBudget',
+        'description': 'Sets the monthly budget target.',
+        'parameters': {
+          'type': 'object',
+          'required': ['amount'],
+          'properties': {
+            'amount': {'type': 'number', 'description': 'The numeric budget amount'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addContact',
+        'description': 'Saves a new contact.',
+        'parameters': {
+          'type': 'object',
+          'required': ['name'],
+          'properties': {
+            'name': {'type': 'string'},
+            'phone': {'type': 'string'},
+            'email': {'type': 'string'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'buyItem',
+        'description': 'Buy a gamification theme or shield. Valid items: amoled_theme, snow_theme, shield, wave_theme, light_sweep_theme',
+        'parameters': {
+          'type': 'object',
+          'required': ['itemId'],
+          'properties': {
+            'itemId': {'type': 'string'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'equipPin',
+        'description': 'Equips a purchased pin or avatar.',
+        'parameters': {
+          'type': 'object',
+          'required': ['pinId'],
+          'properties': {
+            'pinId': {'type': 'string'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'openCalendar',
+        'description': 'Opens the native date picker popup widget.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'scanBills',
+        'description': 'Opens the device camera to automatically scan and parse a receipt/bill.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+  ];
+
   /// Returns the list of new agentic tool definitions for the LLM.
   /// These are appended to the existing Niva tools.
   static List<Map<String, dynamic>> get agenticToolDefinitions => [
@@ -926,5 +1163,826 @@ class ToolExecutor {
         },
       },
     },
+  ];
+
+  // ============================================================
+  // EXPENSO FOR BUSINESS — TOOL HANDLERS
+  // ============================================================
+
+  static Future<String?> _handleAddRevenue(Map<String, dynamic> args, BuildContext context) async {
+    final amount = (args['amount'] as num?)?.toDouble();
+    if (amount == null) return 'Error: amount is required';
+
+    final category = (args['category'] as String?) ?? 'Sales';
+    final note = args['note'] as String?;
+    final customerName = args['customerName'] as String?;
+    final dateStr = args['date'] as String?;
+    final date = dateStr != null ? DateTime.tryParse(dateStr) ?? DateTime.now() : DateTime.now();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final txn = BusinessTransaction(
+      id: const Uuid().v4(),
+      userId: '',
+      type: TransactionType.revenue,
+      title: note ?? 'Sales Revenue',
+      amount: amount,
+      date: date,
+      category: category,
+      note: note,
+      customerName: customerName,
+    );
+
+    await context.read<BusinessProvider>().addTransaction(txn);
+    final label = customerName != null ? ' from $customerName' : '';
+    return '✅ Recorded $currency${amount.toStringAsFixed(0)} $category revenue$label';
+  }
+
+  static Future<String?> _handleAddBusinessExpense(Map<String, dynamic> args, BuildContext context) async {
+    final amount = (args['amount'] as num?)?.toDouble();
+    if (amount == null) return 'Error: amount is required';
+
+    final category = (args['category'] as String?) ?? 'Miscellaneous';
+    final note = args['note'] as String?;
+    final dateStr = args['date'] as String?;
+    final date = dateStr != null ? DateTime.tryParse(dateStr) ?? DateTime.now() : DateTime.now();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final txn = BusinessTransaction(
+      id: const Uuid().v4(),
+      userId: '',
+      type: TransactionType.expense,
+      title: note ?? '$category expense',
+      amount: amount,
+      date: date,
+      category: category,
+      note: note,
+    );
+
+    await context.read<BusinessProvider>().addTransaction(txn);
+    return '✅ Recorded $currency${amount.toStringAsFixed(0)} business expense ($category)';
+  }
+
+  static Future<String?> _handleAddInventoryPurchase(Map<String, dynamic> args, BuildContext context) async {
+    final amount = (args['amount'] as num?)?.toDouble();
+    if (amount == null) return 'Error: amount is required';
+
+    final itemName = (args['itemName'] as String?) ?? 'Stock';
+    final quantity = args['quantity'] as int?;
+    final unitPrice = (args['unitPrice'] as num?)?.toDouble();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final txn = BusinessTransaction(
+      id: const Uuid().v4(),
+      userId: '',
+      type: TransactionType.inventoryPurchase,
+      title: 'Inventory: $itemName',
+      amount: amount,
+      date: DateTime.now(),
+      category: 'Stock Purchase',
+      itemName: itemName,
+      quantity: quantity,
+      unitPrice: unitPrice,
+    );
+
+    await context.read<BusinessProvider>().addTransaction(txn);
+    final qtyLabel = quantity != null ? '$quantity × ' : '';
+    final priceLabel = unitPrice != null ? ' @ $currency${unitPrice.toStringAsFixed(0)}' : '';
+    return '✅ Logged inventory: $qtyLabel$itemName$priceLabel (Total: $currency${amount.toStringAsFixed(0)})';
+  }
+
+  static Future<String?> _handleMarkCustomerDue(Map<String, dynamic> args, BuildContext context) async {
+    final name = args['name'] as String?;
+    final amount = (args['amount'] as num?)?.toDouble();
+    if (name == null || amount == null) return 'Error: name and amount are required';
+
+    final reason = args['reason'] as String?;
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final due = BusinessDue(
+      id: const Uuid().v4(),
+      userId: '',
+      personName: name,
+      amount: amount,
+      direction: DueDirection.receivable,
+      reason: reason,
+    );
+
+    await context.read<BusinessProvider>().addDue(due);
+    return '✅ Recorded: $name owes you $currency${amount.toStringAsFixed(0)}${reason != null ? " for $reason" : ""}';
+  }
+
+  static Future<String?> _handleMarkSupplierDue(Map<String, dynamic> args, BuildContext context) async {
+    final name = args['name'] as String?;
+    final amount = (args['amount'] as num?)?.toDouble();
+    if (name == null || amount == null) return 'Error: name and amount are required';
+
+    final reason = args['reason'] as String?;
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final due = BusinessDue(
+      id: const Uuid().v4(),
+      userId: '',
+      personName: name,
+      amount: amount,
+      direction: DueDirection.payable,
+      reason: reason,
+    );
+
+    await context.read<BusinessProvider>().addDue(due);
+    return '✅ Recorded: You owe $name $currency${amount.toStringAsFixed(0)}${reason != null ? " for $reason" : ""}';
+  }
+
+  static Future<String?> _handleMarkDuePaid(Map<String, dynamic> args, BuildContext context) async {
+    final nameOrId = (args['nameOrId'] as String?)?.toLowerCase();
+    if (nameOrId == null) return 'Error: name is required';
+
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    // Find by name (fuzzy match)
+    final match = biz.pendingReceivables.cast<BusinessDue?>().firstWhere(
+      (d) => d!.personName.toLowerCase().contains(nameOrId),
+      orElse: () => biz.pendingPayables.cast<BusinessDue?>().firstWhere(
+        (d) => d!.personName.toLowerCase().contains(nameOrId),
+        orElse: () => null,
+      ),
+    );
+
+    if (match == null) return 'Could not find a pending due for "$nameOrId".';
+
+    await biz.markDuePaid(match.id);
+    return '✅ Marked ${match.personName}\'s $currency${match.amount.toStringAsFixed(0)} as paid';
+  }
+
+  static String? _handleGetDailyProfit(BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final rev = biz.getTodayRevenue();
+    final exp = biz.getTodayExpenses();
+    final profit = biz.getTodayProfit();
+
+    return 'Today: Revenue $currency${rev.toStringAsFixed(0)}, Expenses $currency${exp.toStringAsFixed(0)}, ${profit >= 0 ? "Profit" : "Loss"} $currency${profit.abs().toStringAsFixed(0)}';
+  }
+
+  static String? _handleGetWeeklyProfit(BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final rev = biz.getWeekRevenue();
+    final exp = biz.getWeekExpenses();
+    final profit = biz.getWeekProfit();
+
+    return 'This Week: Revenue $currency${rev.toStringAsFixed(0)}, Expenses $currency${exp.toStringAsFixed(0)}, ${profit >= 0 ? "Profit" : "Loss"} $currency${profit.abs().toStringAsFixed(0)}';
+  }
+
+  static String? _handleGetMonthlyCashFlow(BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final rev = biz.getMonthRevenue();
+    final exp = biz.getMonthExpenses();
+    final profit = biz.getMonthProfit();
+
+    final cashFlow = biz.getDailyCashFlow(7);
+    final buf = StringBuffer();
+    buf.writeln('This Month: Revenue $currency${rev.toStringAsFixed(0)}, Expenses $currency${exp.toStringAsFixed(0)}, Net $currency${profit.toStringAsFixed(0)}');
+    buf.writeln('');
+    buf.writeln('Last 7 Days:');
+    for (var day in cashFlow) {
+      final date = day['date'] as DateTime;
+      final dayRev = day['revenue'] as double;
+      final dayExp = day['expenses'] as double;
+      buf.writeln('  ${date.day}/${date.month}: In $currency${dayRev.toStringAsFixed(0)}, Out $currency${dayExp.toStringAsFixed(0)}');
+    }
+
+    return buf.toString();
+  }
+
+  static String? _handleGetPendingReceivables(BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final receivables = biz.pendingReceivables;
+    if (receivables.isEmpty) return 'No pending receivables. All dues are collected! 🎉';
+
+    final total = biz.totalReceivables;
+    final buf = StringBuffer();
+    buf.writeln('$currency${total.toStringAsFixed(0)} pending from ${receivables.length} ${receivables.length == 1 ? "person" : "people"}:');
+    for (var d in receivables.take(10)) {
+      buf.writeln('  • ${d.personName}: $currency${d.amount.toStringAsFixed(0)}${d.reason != null ? " (${d.reason})" : ""}');
+    }
+    if (receivables.length > 10) buf.writeln('  ... and ${receivables.length - 10} more');
+    return buf.toString();
+  }
+
+  static String? _handleGetTopExpenseCategories(Map<String, dynamic> args, BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final cats = biz.expenseByCategoryThisMonth;
+    if (cats.isEmpty) return 'No business expenses recorded this month yet.';
+
+    final total = cats.values.fold(0.0, (s, v) => s + v);
+    final sorted = cats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    final buf = StringBuffer();
+    buf.writeln('Top Business Expense Categories (This Month):');
+    for (var e in sorted.take(5)) {
+      final pct = (e.value / total * 100).toStringAsFixed(0);
+      buf.writeln('  • ${e.key}: $currency${e.value.toStringAsFixed(0)} ($pct%)');
+    }
+    return buf.toString();
+  }
+
+  static String? _handleGetTopRevenueCategories(Map<String, dynamic> args, BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final cats = biz.revenueByCategoryThisMonth;
+    if (cats.isEmpty) return 'No revenue recorded this month yet.';
+
+    final total = cats.values.fold(0.0, (s, v) => s + v);
+    final sorted = cats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    final buf = StringBuffer();
+    buf.writeln('Top Revenue Categories (This Month):');
+    for (var e in sorted.take(5)) {
+      final pct = (e.value / total * 100).toStringAsFixed(0);
+      buf.writeln('  • ${e.key}: $currency${e.value.toStringAsFixed(0)} ($pct%)');
+    }
+    return buf.toString();
+  }
+
+  static String? _handleGetBusinessHealth(BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final health = biz.getBusinessHealth();
+    final creditScore = biz.getCreditReadinessScore();
+
+    return 'Business Health: ${health.score}/100 (${health.grade})\n'
+        'Margin: ${health.marginPercent.toStringAsFixed(1)}%\n'
+        'Revenue: $currency${health.totalRevenue.toStringAsFixed(0)}\n'
+        'Expenses: $currency${health.totalExpenses.toStringAsFixed(0)}\n'
+        'Pending Receivables: $currency${health.pendingReceivables.toStringAsFixed(0)} (${health.pendingReceivableCount} people)\n'
+        'Credit Readiness: $creditScore/100';
+  }
+
+  static String? _handleForecastIncome(BuildContext context) {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    final forecast = biz.getForecast();
+    return 'Income Forecast (Month-End):\n'
+        'Current Revenue: $currency${forecast['currentRevenue']?.toStringAsFixed(0)}\n'
+        'Projected Revenue: $currency${forecast['projectedRevenue']?.toStringAsFixed(0)}\n'
+        'Daily Rate: $currency${forecast['dailyRevenueRate']?.toStringAsFixed(0)}/day\n'
+        'Projected Profit: $currency${forecast['projectedProfit']?.toStringAsFixed(0)}';
+  }
+
+  static Future<String?> _handleExportBusinessReport(Map<String, dynamic> args, BuildContext context) async {
+    final biz = context.read<BusinessProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+
+    // Build CSV
+    final buf = StringBuffer();
+    buf.writeln('Date,Type,Title,Category,Amount,Customer/Supplier,Quantity,Unit Price');
+    for (var t in biz.transactions) {
+      buf.writeln('${t.date.toIso8601String()},${t.type.name},"${t.title}","${t.category}",${t.amount},"${t.customerName ?? ''}",${t.quantity ?? ''},${t.unitPrice ?? ''}');
+    }
+
+    // Add P&L summary
+    buf.writeln('');
+    buf.writeln('--- PROFIT & LOSS SUMMARY ---');
+    buf.writeln('Month Revenue,$currency${biz.getMonthRevenue().toStringAsFixed(0)}');
+    buf.writeln('Month Expenses,$currency${biz.getMonthExpenses().toStringAsFixed(0)}');
+    buf.writeln('Month Profit,$currency${biz.getMonthProfit().toStringAsFixed(0)}');
+
+    // Add receivables
+    buf.writeln('');
+    buf.writeln('--- PENDING RECEIVABLES ---');
+    for (var d in biz.pendingReceivables) {
+      buf.writeln('"${d.personName}",$currency${d.amount.toStringAsFixed(0)},"${d.reason ?? ''}"');
+    }
+
+    try {
+      final success = await ExportService.exportRawCsvString(buf.toString(), 'expenso_business_report');
+      return success ? '✅ Business report exported successfully!' : '❌ Export failed.';
+    } catch (e) {
+      return 'Export failed: $e';
+    }
+  }
+
+  // ============================================================
+  // BUSINESS TOOL DEFINITIONS (for LLM)
+  // ============================================================
+
+  static List<Map<String, dynamic>> get businessToolDefinitions => [
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addRevenue',
+        'description': 'Record business revenue / sales income. Use when user says "sold", "earned", "received payment", "customer paid", "income", "revenue".',
+        'parameters': {
+          'type': 'object',
+          'required': ['amount'],
+          'properties': {
+            'amount': {'type': 'number', 'description': 'Revenue amount'},
+            'category': {'type': 'string', 'description': 'Revenue type: Sales, Services, Online Orders, Wholesale, etc.'},
+            'note': {'type': 'string', 'description': 'Description of the sale'},
+            'customerName': {'type': 'string', 'description': 'Name of customer who paid'},
+            'date': {'type': 'string', 'description': 'ISO date string. Defaults to today.'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addBusinessExpense',
+        'description': 'Record a business expense (rent, utilities, salary, transport, etc.). Use when user says "paid rent", "business expense", "business cost".',
+        'parameters': {
+          'type': 'object',
+          'required': ['amount'],
+          'properties': {
+            'amount': {'type': 'number', 'description': 'Expense amount'},
+            'category': {'type': 'string', 'description': 'Expense type: Rent, Utilities, Transport, Salary, Raw Materials, Packaging, Equipment, Marketing, Miscellaneous'},
+            'note': {'type': 'string', 'description': 'Description of the expense'},
+            'date': {'type': 'string', 'description': 'ISO date string. Defaults to today.'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'addInventoryPurchase',
+        'description': 'Record a stock/inventory purchase with quantity and unit pricing. Use when user says "bought stock", "purchased items", "inventory".',
+        'parameters': {
+          'type': 'object',
+          'required': ['amount', 'itemName'],
+          'properties': {
+            'amount': {'type': 'number', 'description': 'Total purchase amount'},
+            'itemName': {'type': 'string', 'description': 'Name of item purchased'},
+            'quantity': {'type': 'integer', 'description': 'Number of units bought'},
+            'unitPrice': {'type': 'number', 'description': 'Price per unit'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'markCustomerDue',
+        'description': 'Record money a customer owes (receivable/credit sale). Use when user says "customer owes", "due amount", "credit given", "udhaar diya".',
+        'parameters': {
+          'type': 'object',
+          'required': ['name', 'amount'],
+          'properties': {
+            'name': {'type': 'string', 'description': 'Customer name'},
+            'amount': {'type': 'number', 'description': 'Amount owed'},
+            'reason': {'type': 'string', 'description': 'Reason for the due'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'markSupplierDue',
+        'description': 'Record money the user owes to a supplier (payable). Use when user says "I owe supplier", "pending payment to", "udhaar liya".',
+        'parameters': {
+          'type': 'object',
+          'required': ['name', 'amount'],
+          'properties': {
+            'name': {'type': 'string', 'description': 'Supplier name'},
+            'amount': {'type': 'number', 'description': 'Amount owed'},
+            'reason': {'type': 'string', 'description': 'Reason for the due'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'markDuePaid',
+        'description': 'Mark a pending due as paid/collected. Use when user says "Rahul paid", "collected from", "due cleared".',
+        'parameters': {
+          'type': 'object',
+          'required': ['nameOrId'],
+          'properties': {
+            'nameOrId': {'type': 'string', 'description': 'Name of the person whose due is being paid'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getDailyProfit',
+        'description': 'Get today\'s revenue, expenses, and profit. Use when user asks "how much profit today", "aaj ki kamai", "today\'s earnings".',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getWeeklyProfit',
+        'description': 'Get this week\'s revenue, expenses, and profit. Use when user asks "weekly profit", "this week earnings".',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getMonthlyCashFlow',
+        'description': 'Get this month\'s cash flow with daily breakdown. Use when user asks about monthly performance, cash flow.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getPendingReceivables',
+        'description': 'List all pending customer dues (receivables). Use when user asks "who owes me", "pending dues", "udhaar list".',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getTopExpenseCategories',
+        'description': 'Get top business expense categories this month. Use for expense breakdown analysis.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getTopRevenueCategories',
+        'description': 'Get top revenue categories this month. Use for revenue breakdown analysis.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'getBusinessHealth',
+        'description': 'Get business health score (0-100) with margin analysis, receivables status, and credit readiness.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'forecastIncome',
+        'description': 'Forecast month-end revenue and profit based on current daily rate. Use when user asks about income projections.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'exportBusinessReport',
+        'description': 'Export a complete business report with P&L summary and receivables as CSV. Use when user asks to export, download, or share business report.',
+        'parameters': {'type': 'object', 'properties': {}},
+      },
+    },
+  ];
+
+  // ============================================================
+  // SHARED EXPENSES — TOOL HANDLERS
+  // ============================================================
+
+  static SharedRoom? _findRoom(SharedProvider shared, String? hint) {
+    if (hint == null || hint.isEmpty) {
+      return shared.rooms.isNotEmpty ? shared.rooms.first : null;
+    }
+    final lower = hint.toLowerCase();
+    final upper = hint.toUpperCase();
+    SharedRoom? byCode = shared.roomByCode(upper);
+    if (byCode != null) return byCode;
+    for (final r in shared.rooms) {
+      if (r.roomName.toLowerCase().contains(lower)) return r;
+    }
+    return null;
+  }
+
+  static SharedRoomType _parseRoomType(String? raw) {
+    final v = (raw ?? '').toLowerCase();
+    if (v.contains('flat') || v.contains('roommate') || v.contains('home')) {
+      return SharedRoomType.flatmates;
+    }
+    if (v.contains('trip') || v.contains('travel') || v.contains('vacation')) {
+      return SharedRoomType.trip;
+    }
+    if (v.contains('couple') || v.contains('partner')) {
+      return SharedRoomType.couple;
+    }
+    if (v.contains('friend')) return SharedRoomType.friends;
+    if (v.contains('team') || v.contains('work')) return SharedRoomType.team;
+    return SharedRoomType.custom;
+  }
+
+  static Future<String?> _handleCreateSharedRoom(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final name = (args['roomName'] as String?)?.trim();
+    if (name == null || name.isEmpty) return 'Error: roomName is required.';
+    final type = _parseRoomType(args['roomType'] as String?);
+    final currency = (args['currency'] as String?) ??
+        context.read<AppSettingsProvider>().currencySymbol;
+
+    final shared = context.read<SharedProvider>();
+    final room = await shared.createRoom(
+      roomName: name,
+      type: type,
+      currency: currency,
+    );
+    if (room == null) return 'Could not create room. Please try again.';
+    return '✅ Created "${room.roomName}" (${room.typeLabel}). Code: ${room.roomCode}';
+  }
+
+  static Future<String?> _handleJoinSharedRoom(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final code = (args['code'] as String?)?.trim();
+    if (code == null || code.isEmpty) return 'Error: code is required.';
+
+    final shared = context.read<SharedProvider>();
+    try {
+      final room = await shared.joinRoom(code);
+      if (room == null) return 'Could not join room.';
+      return '✅ Joined "${room.roomName}".';
+    } on SharedJoinException catch (e) {
+      switch (e.code) {
+        case 'room_not_found':
+          return 'No room found with that code.';
+        case 'offline_queued':
+          return 'You are offline. I will join the room as soon as you reconnect.';
+        default:
+          return 'Could not join room.';
+      }
+    }
+  }
+
+  static Future<String?> _handleAddSharedExpense(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final title = (args['title'] as String?)?.trim();
+    final amount = (args['amount'] as num?)?.toDouble();
+    if (title == null || amount == null || amount <= 0) {
+      return 'Error: title and amount are required.';
+    }
+
+    final shared = context.read<SharedProvider>();
+    final hint = args['roomNameOrCode'] as String?;
+    final room = _findRoom(shared, hint);
+    if (room == null) {
+      return 'No matching shared room. Tell me which room to use, or create one first.';
+    }
+
+    final category = args['category'] as String?;
+    final splitTypeStr = (args['splitType'] as String?)?.toLowerCase();
+    final splitType = splitTypeStr == 'custom'
+        ? SharedSplitType.custom
+        : (splitTypeStr == 'percentage'
+            ? SharedSplitType.percentage
+            : SharedSplitType.equal);
+
+    final exp = await shared.addExpense(
+      roomId: room.id,
+      title: title,
+      amount: amount,
+      category: category,
+      splitType: splitType,
+    );
+    if (exp == null) return 'Could not add the expense.';
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+    return '✅ Added "$title" — $currency${amount.toStringAsFixed(2)} to ${room.roomName}.';
+  }
+
+  static String? _handleGetRoomBalances(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) {
+    final shared = context.read<SharedProvider>();
+    final hint = args['roomNameOrCode'] as String?;
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'You are not in any shared rooms yet.';
+
+    final auth = context.read<AuthProvider>();
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+    final balances = shared.balancesOf(room.id);
+    if (balances.isEmpty) return '${room.roomName}: no balances yet.';
+
+    final me = auth.currentUser?.id;
+    final buf = StringBuffer();
+    buf.writeln('${room.roomName} balances:');
+    for (final b in balances) {
+      final isMe = b.userId == me;
+      final name = isMe ? 'You' : (b.displayName ?? 'Member');
+      if (b.net.abs() < 0.01) {
+        buf.writeln('  • $name: even');
+      } else if (b.net > 0) {
+        buf.writeln(
+            '  • $name is owed $currency${b.net.toStringAsFixed(2)}');
+      } else {
+        buf.writeln(
+            '  • $name owes $currency${b.net.abs().toStringAsFixed(2)}');
+      }
+    }
+    return buf.toString();
+  }
+
+  static String? _handleSuggestSettlement(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) {
+    final shared = context.read<SharedProvider>();
+    final hint = args['roomNameOrCode'] as String?;
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'You are not in any shared rooms yet.';
+
+    final currency = context.read<AppSettingsProvider>().currencySymbol;
+    final transfers = shared.suggestSettlementsFor(room.id);
+    if (transfers.isEmpty) return '${room.roomName}: everyone is square.';
+
+    final auth = context.read<AuthProvider>();
+    final me = auth.currentUser?.id;
+    final buf = StringBuffer();
+    buf.writeln('Settlement plan for ${room.roomName}:');
+    for (final t in transfers) {
+      final fromLabel = t.fromUserId == me ? 'You' : (t.fromName ?? 'Member');
+      final toLabel = t.toUserId == me ? 'you' : (t.toName ?? 'member');
+      buf.writeln(
+          '  • $fromLabel → $toLabel: $currency${t.amount.toStringAsFixed(2)}');
+    }
+    return buf.toString();
+  }
+
+  static Future<String?> _handleSettleSharedExpense(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final shared = context.read<SharedProvider>();
+    final hint = args['roomNameOrCode'] as String?;
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'You are not in any shared rooms yet.';
+
+    final n = await shared.settleAll(room.id);
+    if (n == 0) return 'Nothing to settle in ${room.roomName}.';
+    return '✅ Settled $n transfer${n == 1 ? "" : "s"} in ${room.roomName}.';
+  }
+
+  // ============================================================
+  // SHARED EXPENSES — TOOL DEFINITIONS (for LLM)
+  // ============================================================
+
+  static List<Map<String, dynamic>> get sharedToolDefinitions => [
+        {
+          'type': 'function',
+          'function': {
+            'name': 'createSharedRoom',
+            'description':
+                'Create a new shared expenses room (group wallet) for trips, flatmates, couples, friends, or teams. Use when the user says "create a room", "start a trip", "split with my flatmates", etc.',
+            'parameters': {
+              'type': 'object',
+              'required': ['roomName'],
+              'properties': {
+                'roomName': {
+                  'type': 'string',
+                  'description': 'Name of the room, e.g. "Goa Trip" or "Apt 402"',
+                },
+                'roomType': {
+                  'type': 'string',
+                  'enum': ['flatmates', 'trip', 'couple', 'friends', 'team', 'custom'],
+                  'description': 'Type of room. Defaults to custom.',
+                },
+                'currency': {
+                  'type': 'string',
+                  'description': 'Currency symbol or code, defaults to user setting',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'joinSharedRoom',
+            'description':
+                'Join an existing shared room using a 6-character code that another user shared.',
+            'parameters': {
+              'type': 'object',
+              'required': ['code'],
+              'properties': {
+                'code': {
+                  'type': 'string',
+                  'description': 'The room code, e.g. TRIP45 or HOME77',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'addSharedExpense',
+            'description':
+                'Add a shared expense to one of the user\'s rooms. Use when the user says "split dinner ₹1200 with friends", "add ₹8000 rent to flatmates room", etc.',
+            'parameters': {
+              'type': 'object',
+              'required': ['title', 'amount'],
+              'properties': {
+                'title': {'type': 'string'},
+                'amount': {'type': 'number'},
+                'roomNameOrCode': {
+                  'type': 'string',
+                  'description':
+                      'Room name (fuzzy) or 6-character code. If omitted, uses the most recent room.',
+                },
+                'category': {'type': 'string'},
+                'splitType': {
+                  'type': 'string',
+                  'enum': ['equal', 'custom', 'percentage'],
+                  'description': 'Defaults to equal split across all members.',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'getRoomBalances',
+            'description':
+                'Read who owes whom inside a shared room. Use when the user asks "who owes me", "what\'s my balance in flatmates room", etc.',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {
+                  'type': 'string',
+                  'description': 'Room name or code. If omitted, uses the most recent room.',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'suggestSettlement',
+            'description':
+                'Compute the minimum-transfer settlement plan for a room. Use when the user asks "how do we settle up", "who pays whom".',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {'type': 'string'},
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'settleSharedExpense',
+            'description':
+                'Mark all suggested transfers in a room as settled. Use when the user says "settle all balances", "we paid everyone", etc. Always confirm with the user first.',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {'type': 'string'},
+              },
+            },
+          },
+        },
+      ];
+
+  /// Returns all tool definitions — base tools + business tools when active.
+  @Deprecated('Use getToolsForMode() instead for consistent tool sets across voice and chat.')
+  static List<Map<String, dynamic>> getAllToolDefinitions({bool includeBusinessTools = false}) {
+    if (includeBusinessTools) {
+      return [...agenticToolDefinitions, ...businessToolDefinitions];
+    }
+    return agenticToolDefinitions;
+  }
+
+  /// Returns the complete, mode-appropriate tool set for Niva.
+  ///
+  /// [NivaMode.personal] → core tools + agentic analytics tools
+  /// [NivaMode.business] → personal tools + business accounting tools
+  ///
+  /// Use this in both the voice service and the text chat service to ensure
+  /// a consistent, mode-aware tool surface.
+  static List<Map<String, dynamic>> getToolsForMode(NivaMode mode) => [
+    ...coreToolDefinitions,
+    ...agenticToolDefinitions,
+    ...sharedToolDefinitions,
+    if (mode == NivaMode.business) ...businessToolDefinitions,
   ];
 }

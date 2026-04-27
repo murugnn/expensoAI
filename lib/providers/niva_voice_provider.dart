@@ -12,6 +12,7 @@ import 'package:expenso/models/subscription.dart';
 import 'package:expenso/utils/niva_utils.dart';
 import 'package:expenso/features/goals/models/goal_model.dart';
 import 'package:expenso/models/contact.dart';
+import 'package:expenso/services/niva_session_memory.dart';
 
 enum NivaStatus { idle, connecting, active }
 
@@ -224,6 +225,11 @@ class NivaVoiceProvider extends ChangeNotifier {
     required int streak,
     required List<Contact> contacts,
     required String customKey,
+    // Expenso for Business
+    bool isBusinessMode = false,
+    String? businessContext,
+    String? businessName,
+    String? businessType,
   }) async {
     if (_status != NivaStatus.idle) return;
     _service.init(customKey: customKey);
@@ -253,6 +259,7 @@ class NivaVoiceProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final memoryContext = await NivaSessionMemory().buildContextString();
       final call = await _service.startCall(
         expenses: expenses,
         budget: budget,
@@ -264,6 +271,11 @@ class NivaVoiceProvider extends ChangeNotifier {
         xp: xp,
         streak: streak,
         contacts: contacts,
+        memoryContext: memoryContext,
+        isBusinessMode: isBusinessMode,
+        businessContext: businessContext,
+        businessName: businessName,
+        businessType: businessType,
       );
 
       if (call != null) {

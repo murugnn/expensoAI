@@ -58,4 +58,28 @@ class ExportService {
       return false;
     }
   }
+
+  /// Writes a raw CSV string to a file and shares it.
+  static Future<bool> exportRawCsvString(String csvData, String filenamePrefix) async {
+    try {
+      final Directory tempDir = await getTemporaryDirectory();
+      final String timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
+      final String filePath = '${tempDir.path}/${filenamePrefix}_$timestamp.csv';
+
+      final File file = File(filePath);
+      await file.writeAsString(csvData);
+
+      final result = await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Expenso Business Data Export',
+        subject: 'Expenso Export',
+      );
+
+      return result.status == ShareResultStatus.success;
+    } catch (e) {
+      debugPrint("Error sharing raw CSV string: $e");
+      return false;
+    }
+  }
 }
+

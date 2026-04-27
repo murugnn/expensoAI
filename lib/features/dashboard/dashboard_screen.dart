@@ -14,9 +14,12 @@ import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/providers/niva_voice_provider.dart';
 import 'package:expenso/providers/subscription_provider.dart';
 import 'package:expenso/providers/contact_provider.dart';
+import 'package:expenso/providers/business_provider.dart';
 
 // Components
 import 'package:expenso/features/add_expense/add_expense_sheet.dart';
+import 'package:expenso/features/business/sheets/add_revenue_sheet.dart';
+import 'package:expenso/features/business/sheets/add_due_sheet.dart';
 import 'package:expenso/features/add_expense/add_bill_sheet.dart';
 import 'package:expenso/core/components/summary_card.dart';
 import 'package:expenso/core/components/expense_card.dart';
@@ -28,19 +31,30 @@ import 'package:expenso/services/notification_service.dart';
 import 'package:expenso/features/dashboard/widgets/monthly_summary_sheet.dart';
 import 'package:expenso/services/launch_intent_service.dart';
 import 'package:expenso/features/updater/services/update_service.dart';
+import 'package:expenso/features/dashboard/widgets/business_summary_card.dart';
+import 'package:expenso/features/dashboard/widgets/pending_dues_card.dart';
+import 'package:expenso/features/dashboard/widgets/business_detail_sheet.dart';
 import 'package:expenso/services/receipt_scanner_service.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:expenso/features/goals/widgets/active_goal_summary_widget.dart';
 import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
+import 'package:expenso/features/mode_switcher/workspace_mode_switcher.dart';
+import 'package:expenso/features/shared/widgets/shared_dashboard_section.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onViewAll;
+  final VoidCallback onNavigateToInsights;
   final GlobalKey? summaryKey;
+  final GlobalKey? askNivaKey;
+  final GlobalKey? modeSwitcherKey;
 
   const DashboardScreen({
     super.key,
     required this.onViewAll,
+    required this.onNavigateToInsights,
     this.summaryKey,
+    this.askNivaKey,
+    this.modeSwitcherKey,
   });
 
   @override
@@ -49,6 +63,18 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _isQuickActionsExpanded = false;
+
+  /// Guard against double-tapping the mode switcher during animation.
+  bool _isModeTransitioning = false;
+
+  void _handleModeSwitch(bool toBusiness) {
+    final settings = context.read<AppSettingsProvider>();
+    final targetMode = toBusiness ? 'business' : 'personal';
+    
+    // We removed the heavy WorkspaceTransitionOverlay for a cleaner, professional fade
+    // which is already handled automatically by the AnimatedSwitcher in MainScreen.
+    settings.setAppMode(targetMode);
+  }
 
   @override
   void initState() {
@@ -372,55 +398,96 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     padding: EdgeInsets.symmetric(horizontal: 16.0),
                     child: Divider(height: 16),
                   ),
-                  _VerticalQuickAction(
-                      icon: Icons.add_rounded, 
-                      label: "Add", 
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         _showAddExpenseSheet(context);
-                      }),
-                  _VerticalQuickAction(
-                      icon: Icons.qr_code_scanner_rounded, 
-                      label: "Scan", 
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         _handleScan(context);
-                      }),
-                  _VerticalQuickAction(
-                      icon: Icons.analytics_outlined, 
-                      label: "Stats", 
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         _showCategoryBreakdown(context);
-                      }),
-                  _VerticalQuickAction(
-                      icon: Icons.account_balance_wallet_outlined, 
-                      label: "Budget", 
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         _showBudgetDialog(context);
-                      }),
-                  _VerticalQuickAction(
-                      icon: Icons.track_changes_outlined,
-                      label: "Goals",
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         context.push('/goals');
-                      }),
-                  _VerticalQuickAction(
-                      icon: Icons.contacts_outlined,
-                      label: "Contacts",
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         context.push('/settings/contacts');
-                      }),
-                  _VerticalQuickAction(
-                      icon: Icons.subscriptions_outlined,
-                      label: "Subs",
-                      onTap: () {
-                         setState(() => _isQuickActionsExpanded = false);
-                         context.push('/settings/subscriptions');
-                      }),
+                  if (context.read<AppSettingsProvider>().isBusinessMode) ...[
+                    _VerticalQuickAction(
+                        icon: Icons.point_of_sale_rounded,
+                        label: "Sale",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           showModalBottomSheet(
+                             context: context,
+                             isScrollControlled: true,
+                             backgroundColor: Colors.transparent,
+                             builder: (_) => const AddRevenueSheet(),
+                           );
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.receipt_long,
+                        label: "Cost",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           _showAddExpenseSheet(context);
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.pending_actions_rounded,
+                        label: "Due",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           showModalBottomSheet(
+                             context: context,
+                             isScrollControlled: true,
+                             backgroundColor: Colors.transparent,
+                             builder: (_) => const AddDueSheet(),
+                           );
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.insights_rounded,
+                        label: "Stats",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           widget.onNavigateToInsights();
+                        }),
+                  ] else ...[
+                    _VerticalQuickAction(
+                        icon: Icons.add_rounded, 
+                        label: "Add", 
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           _showAddExpenseSheet(context);
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.qr_code_scanner_rounded, 
+                        label: "Scan", 
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           _handleScan(context);
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.analytics_outlined, 
+                        label: "Stats", 
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           _showCategoryBreakdown(context);
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.account_balance_wallet_outlined, 
+                        label: "Budget", 
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           _showBudgetDialog(context);
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.track_changes_outlined,
+                        label: "Goals",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           context.push('/goals');
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.contacts_outlined,
+                        label: "Contacts",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           context.push('/settings/contacts');
+                        }),
+                    _VerticalQuickAction(
+                        icon: Icons.subscriptions_outlined,
+                        label: "Subs",
+                        onTap: () {
+                           setState(() => _isQuickActionsExpanded = false);
+                           context.push('/settings/subscriptions');
+                        }),
+                  ],
                   const SizedBox(height: 16),
                 ] else
                   const SizedBox(height: 4),
@@ -438,6 +505,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final gameProvider = context.watch<GamificationProvider>();
     final expenseProvider = context.watch<ExpenseProvider>();
     final goalService = context.watch<GoalService>();
+    final settings = context.watch<AppSettingsProvider>();
 
     final health = FinancialMemoryService().getFinancialHealthScore(
       expenseProvider.expenses,
@@ -529,124 +597,166 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
 
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
+
+                // ── WORKSPACE MODE SWITCHER ───────────────────────────────
+                WorkspaceModeSwitcher(
+                  key: widget.modeSwitcherKey,
+                  isBusinessMode: settings.isBusinessMode,
+                  onChanged: _handleModeSwitch,
+                ),
+
+                const SizedBox(height: 28),
 
                 // --- FINANCIAL HEALTH GAUGE ---
-                if (expenseProvider.isLoading && expenseProvider.expenses.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(48),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                if (!settings.isBusinessMode) ...[
+                  if (expenseProvider.isLoading && expenseProvider.expenses.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(48),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                      ),
+                      child: Center(
+                        child: CircularProgressIndicator(color: cs.primary),
+                      ),
+                    )
+                  else if (expenseProvider.expenses.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.monitor_heart_outlined, size: 48, color: cs.primary.withValues(alpha: 0.5)),
+                          const SizedBox(height: 16),
+                          Text(
+                            "No Health Data Yet",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            "Log your first expense to unlock your\nFinancial Health Score.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.tonalIcon(
+                            onPressed: () => _showAddExpenseSheet(context),
+                            icon: const Icon(Icons.add),
+                            label: const Text("Log Expense"),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    FinancialHealthGauge(
+                      score: health.score,
+                      grade: health.grade,
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                          ),
+                          builder: (ctx) => _buildHealthBottomSheet(ctx, health),
+                        );
+                      },
                     ),
-                    child: Center(
-                      child: CircularProgressIndicator(color: cs.primary),
-                    ),
+
+                  const SizedBox(height: 32),
+                ],
+
+                // --- SUMMARY CARD ---
+                if (settings.isBusinessMode)
+                  Builder(
+                    builder: (context) {
+                      final biz = context.watch<BusinessProvider>();
+                      return Column(
+                        children: [
+                          BusinessSummaryCard(
+                            key: widget.summaryKey,
+                            onTap: () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (_) => const BusinessDetailSheet(),
+                              );
+                            },
+                          ),
+                          if (biz.pendingReceivables.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            PendingDuesCard(
+                              pendingDues: biz.pendingReceivables,
+                              currency: settings.currencySymbol,
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   )
-                else if (expenseProvider.expenses.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                else
+                  InkWell(
+                    key: widget.summaryKey,
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () => _showSummaryBreakdown(context),
+                    child: SummaryCard(
+                      totalSpent: totalSpent,
+                      budget: budget,
                     ),
-                    child: Column(
+                  ),
+
+                const SizedBox(height: 32),
+                // --- INTELLIGENT INSIGHT (Text Only) ---
+                if (!settings.isBusinessMode) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cs.primary.withValues(alpha: 0.1))
+                    ),
+                    child: Row(
                       children: [
-                        Icon(Icons.monitor_heart_outlined, size: 48, color: cs.primary.withValues(alpha: 0.5)),
-                        const SizedBox(height: 16),
-                        Text(
-                          "No Health Data Yet",
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: cs.onSurface,
+                        Icon(Icons.auto_awesome, size: 16, color: cs.primary),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            insight,
+                            style: TextStyle(
+                              color: cs.primary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          "Log your first expense to unlock your\nFinancial Health Score.",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: cs.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.tonalIcon(
-                          onPressed: () => _showAddExpenseSheet(context),
-                          icon: const Icon(Icons.add),
-                          label: const Text("Log Expense"),
                         ),
                       ],
                     ),
-                  )
-                else
-                  FinancialHealthGauge(
-                    score: health.score,
-                    grade: health.grade,
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                        ),
-                        builder: (ctx) => _buildHealthBottomSheet(ctx, health),
-                      );
-                    },
                   ),
 
-                const SizedBox(height: 32),
-
-                // --- SUMMARY CARD ---
-                InkWell(
-                  key: widget.summaryKey,
-                  borderRadius: BorderRadius.circular(24),
-                  onTap: () => _showSummaryBreakdown(context),
-                  child: SummaryCard(
-                    totalSpent: totalSpent,
-                    budget: budget,
-                  ),
-                ),
-
-                const SizedBox(height: 32),
-                
-                // --- INTELLIGENT INSIGHT (Text Only) ---
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: cs.primary.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cs.primary.withValues(alpha: 0.1))
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.auto_awesome, size: 16, color: cs.primary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          insight,
-                          style: TextStyle(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
+                ],
                 
                 // --- ASK NIVA BUTTON ---
                 InkWell(
+                  key: widget.askNivaKey,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     final nivaProvider = context.read<NivaVoiceProvider>();
@@ -720,10 +830,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 32),
-                
+                const SizedBox(height: 20),
+
+                // --- SHARED EXPENSES SECTION ---
+                if (!settings.isBusinessMode) ...[
+                  const SharedDashboardSection(),
+                  const SizedBox(height: 12),
+                ],
+
+                const SizedBox(height: 20),
                 // --- ACTIVE GOAL DASHBOARD WIDGET ---
-                if (goalService.activeGoals.isNotEmpty) ...[
+                if (!settings.isBusinessMode && goalService.activeGoals.isNotEmpty) ...[
                   ActiveGoalSummaryWidget(goal: goalService.activeGoals.first),
                   const SizedBox(height: 32),
                 ],
@@ -731,41 +848,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 8),
 
                 // --- RECENT TRANSACTIONS ---
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Transactions',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: cs.onSurface)),
-                    TextButton(
-                      onPressed: widget.onViewAll,
-                      child: const Text('View All'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                if (recentExpenses.isEmpty)
-                   Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Text("No layout noise. Just peace.", 
-                           style: TextStyle(color: cs.onSurface.withValues(alpha: 0.4))),
+                if (!settings.isBusinessMode) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Transactions',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSurface)),
+                      TextButton(
+                        onPressed: widget.onViewAll,
+                        child: const Text('View All'),
                       ),
-                   )
-                else
-                  ListView.builder( // Removed separator for cleaner list
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: recentExpenses.length,
-                    itemBuilder: (context, index) => ExpenseCard(
-                      expense: recentExpenses[index],
-                      onTap: () => _showAddExpenseSheet(context,
-                          expenseToEdit: recentExpenses[index]),
-                    ),
+                    ],
                   ),
+                  const SizedBox(height: 16),
+                  
+                  if (recentExpenses.isEmpty)
+                     Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Text("No layout noise. Just peace.", 
+                             style: TextStyle(color: cs.onSurface.withValues(alpha: 0.4))),
+                        ),
+                     )
+                  else
+                    ListView.builder( // Removed separator for cleaner list
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: recentExpenses.length,
+                      itemBuilder: (context, index) => ExpenseCard(
+                        expense: recentExpenses[index],
+                        onTap: () => _showAddExpenseSheet(context,
+                            expenseToEdit: recentExpenses[index]),
+                      ),
+                    ),
+                ],
                 const SizedBox(height: 80),
               ],
             ),
