@@ -10,11 +10,15 @@ import 'package:expenso/providers/app_settings_provider.dart';
 import 'package:expenso/providers/auth_provider.dart';
 import 'package:expenso/providers/expense_provider.dart';
 import 'package:expenso/providers/gamification_provider.dart';
+import 'package:expenso/providers/social_provider.dart';
+import 'package:expenso/services/contact_hash.dart';
 import 'package:expenso/theme.dart';
 import 'dart:ui';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:expenso/services/storage_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -24,7 +28,11 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
   bool _saving = false;
+  bool _phoneVerifying = false;
+  bool _phoneVerified = false;
+  String? _maskedPhone;
 
   String? _selectedAvatar;
 
@@ -48,6 +56,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final auth = context.read<AuthProvider>();
     _nameController.text = auth.userName;
     _selectedAvatar = auth.userAvatar;
+    _loadPhoneState();
+  }
+
+  Future<void> _loadPhoneState() async {
+    final prefs = await SharedPreferences.getInstance();
+    var masked = prefs.getString('expenso_verified_phone_masked');
+
+    // If not in local cache, try to pull from Supabase (cross-device)
+    if (masked == null) {
+      try {
+        final user = Supabase.instance.client.auth.currentUser;
+        if (user != null) {
+          final res = await Supabase.instance.client
+              .from('user_profiles')
+              .select('phone_masked')
+              .eq('id', user.id)
+              .maybeSingle();
+          if (res != null && res['phone_masked'] != null) {
+            masked = res['phone_masked'] as String;
+            // Cache locally for next time
+            await prefs.setString('expenso_verified_phone_masked', masked);
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (masked != null && mounted) {
+      setState(() {
+        _maskedPhone = masked;
+        _phoneVerified = true;
+      });
+    }
   }
 
   Future<void> _pickAndUploadAvatar() async {
@@ -217,6 +257,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         TextField(
                           controller: _nameController,
+                          onChanged: (_) => setState(() {}),
                           decoration: InputDecoration(
                             labelText: 'Full name',
                             prefixIcon: Icon(Icons.badge_outlined, color: cs.primary),
@@ -228,24 +269,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 12),
                         TextField(
                           enabled: false,
+                          controller: TextEditingController(text: user?.email ?? 'No email'),
                           decoration: InputDecoration(
                             labelText: 'Email',
-                            hintText: user?.email ?? 'No email',
                             prefixIcon: Icon(Icons.alternate_email_rounded, color: cs.onSurfaceVariant),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                             filled: true,
                             fillColor: cs.surface,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: _saving ? null : () => _saveProfile(context),
-                            icon: _saving
-                                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                : const Icon(Icons.check_circle_rounded),
-                            label: const Text('Save changes'),
                           ),
                         ),
                       ],
@@ -256,6 +286,100 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 24),
 
+              // --- PHONE VERIFICATION ---
+              _SectionTitle(title: 'Phone Number'),
+              const SizedBox(height: 4),
+              Text(
+                'Add your phone number so friends can find you on Expenso',
+                style: context.textStyles.bodySmall?.copyWith(color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              _SettingsCard(
+                children: [
+                  Padding(
+                    padding: AppSpacing.paddingMd,
+                    child: _phoneVerified
+                        ? Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4E9F3D).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.verified_rounded,
+                                    color: Color(0xFF4E9F3D), size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Phone verified',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: cs.onSurface,
+                                        )),
+                                    const SizedBox(height: 2),
+                                    Text(_maskedPhone ?? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: cs.onSurface.withOpacity(0.5),
+                                        )),
+                                  ],
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () => _clearPhone(),
+                                child: Text('Change',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: cs.primary,
+                                    )),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            children: [
+                              TextField(
+                                controller: _phoneController,
+                                keyboardType: TextInputType.phone,
+                                decoration: InputDecoration(
+                                  labelText: 'Phone number',
+                                  hintText: '+91 98765 43210',
+                                  prefixIcon: Icon(Icons.phone_outlined, color: cs.primary),
+                                  border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(16)),
+                                  filled: true,
+                                  fillColor: cs.surface,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: _phoneVerifying
+                                      ? null
+                                      : () => _promptVerifyPhone(context),
+                                  icon: _phoneVerifying
+                                      ? const SizedBox(
+                                          height: 18,
+                                          width: 18,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : const Icon(Icons.verified_user_outlined),
+                                  label: const Text('Verify'),
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 28),
+
               // --- 3. CHANGE FACE ---
               _SectionTitle(title: 'Change Face'),
               const SizedBox(height: 12),
@@ -265,6 +389,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onSelected: (value) => setState(() => _selectedAvatar = value),
                 onPickCustom: _pickAndUploadAvatar,
               ),
+              if (_selectedAvatar != auth.userAvatar || _nameController.text != auth.userName) ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : () => _saveProfile(context),
+                    icon: _saving
+                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.check_circle_rounded),
+                    label: const Text('Save changes'),
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 28),
 
@@ -453,6 +590,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  // ---------- Phone verification helpers ----------
+
+  Future<void> _promptVerifyPhone(BuildContext context) async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a phone number.')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Verify Phone'),
+        content: Text('Are you sure $phone is your number? Friends will use this to find you on Expenso.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, verify'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      setState(() => _phoneVerifying = true);
+      await _onPhoneVerified(context, phone);
+    }
+  }
+
+
+
+  Future<void> _onPhoneVerified(BuildContext context, String phone) async {
+    // 1. Build masked display: ••••••1234
+    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final masked = digits.length > 4
+        ? '${'•' * (digits.length - 4)}${digits.substring(digits.length - 4)}'
+        : digits;
+
+    // 2. Hash and push to user_profiles
+    final social = context.read<SocialProvider>();
+    await social.pushOwnContactHashes(phone: phone, phoneMasked: masked);
+
+    // 3. Persist masked display locally
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('expenso_verified_phone_masked', masked);
+
+    if (mounted) {
+      setState(() {
+        _phoneVerified = true;
+        _maskedPhone = masked;
+        _phoneVerifying = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Phone verified! Friends can now find you.')),
+      );
+    }
+  }
+
+  Future<void> _clearPhone() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('expenso_verified_phone_masked');
+    if (mounted) {
+      setState(() {
+        _phoneVerified = false;
+        _maskedPhone = null;
+        _phoneController.clear();
+      });
+    }
   }
 }
 

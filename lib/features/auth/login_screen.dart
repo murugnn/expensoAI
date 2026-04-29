@@ -261,6 +261,71 @@ class _LoginScreenState extends State<LoginScreen> {
                           : const Text("Log In",
                               style: TextStyle(fontSize: 16)),
                     ),
+                    const SizedBox(height: 20),
+
+                    // --- OR divider ---
+                    Row(
+                      children: [
+                        Expanded(child: Divider(color: Colors.grey.shade600)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('OR',
+                              style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500)),
+                        ),
+                        Expanded(child: Divider(color: Colors.grey.shade600)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // --- Google Sign-In ---
+                    OutlinedButton.icon(
+                      onPressed: _isLoading
+                          ? null
+                          : () async {
+                              setState(() => _isLoading = true);
+                              final auth = context.read<AuthProvider>();
+                              final error = await auth.signInWithGoogle();
+                              if (!mounted) return;
+                              setState(() => _isLoading = false);
+                              if (error != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content: Text(error),
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .error),
+                                );
+                                return;
+                              }
+                              // Router redirect handles dashboard / setup
+                              // automatically once auth state changes.
+                              if (auth.isAuthenticated) {
+                                context.go(AppRoutes.dashboard);
+                              }
+                            },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        side: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .outlineVariant),
+                      ),
+                      icon: Image.asset(
+                        'assets/icons/google.png',
+                        width: 22,
+                        height: 22,
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.g_mobiledata, size: 24),
+                      ),
+                      label: const Text('Continue with Google',
+                          style: TextStyle(fontSize: 15)),
+                    ),
+
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,

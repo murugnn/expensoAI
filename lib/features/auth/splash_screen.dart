@@ -12,25 +12,44 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fadeCtrl;
+  late final Animation<double> _fadeAnim;
+
   @override
   void initState() {
     super.initState();
+
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeIn);
+
+    _fadeCtrl.forward();
     _navigate();
   }
 
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _navigate() async {
-    // Show splash for 2 seconds
-    await Future.delayed(const Duration(seconds: 2));
+    // Wait for auth to be ready (polls quickly, no arbitrary 2s delay)
+    final auth = context.read<AuthProvider>();
+    while (!auth.isReady) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      if (!mounted) return;
+    }
+
+    // Give the fade-in at least 600ms to look nice, but no more
+    await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
 
     final settings = context.read<AppSettingsProvider>();
-    final auth = context.read<AuthProvider>();
-
-    // Check Logic:
-    // 1. If Walkthrough is ENABLED -> Go to Walkthrough
-    // 2. If User is Logged In -> Go to Dashboard
-    // 3. Else -> Go to Login
 
     if (settings.walkthroughEnabled) {
       context.go(AppRoutes.walkthrough);
@@ -43,43 +62,16 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Logo Icon
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.account_balance_wallet_rounded,
-                  size: 64, color: theme.colorScheme.primary),
-            ),
-            const SizedBox(height: 24),
-            // App Name
-            Text(
-              "EXPENSO",
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-              ),
-            ),
-            const SizedBox(height: 48),
-            // Loader
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-          ],
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: Image.asset(
+            'assets/icons/logo-exp.png',
+            width: 140,
+            height: 140,
+          ),
         ),
       ),
     );

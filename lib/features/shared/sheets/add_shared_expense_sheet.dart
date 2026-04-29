@@ -398,7 +398,8 @@ class _CustomSplitEditor extends StatelessWidget {
               CircleAvatar(
                 radius: 14,
                 backgroundColor: cs.primary.withOpacity(0.15),
-                child: Text(
+                backgroundImage: m.avatarUrl != null ? NetworkImage(m.avatarUrl!) : null,
+                child: m.avatarUrl == null ? Text(
                   (m.displayName ?? '?').isEmpty
                       ? '?'
                       : (m.displayName ?? '?').substring(0, 1).toUpperCase(),
@@ -406,7 +407,7 @@ class _CustomSplitEditor extends StatelessWidget {
                       color: cs.primary,
                       fontWeight: FontWeight.bold,
                       fontSize: 12),
-                ),
+                ) : null,
               ),
               const SizedBox(width: 10),
               Expanded(

@@ -128,33 +128,115 @@ class SettleUpSheet extends StatelessWidget {
             }),
           if (transfers.isNotEmpty) ...[
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: () async {
-                  HapticFeedback.mediumImpact();
-                  final n = await shared.settleAll(roomId);
-                  if (!context.mounted) return;
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(n == 0
-                          ? 'Nothing to settle.'
-                          : 'Recorded $n settlement${n == 1 ? "" : "s"}.'),
+            Builder(builder: (ctx) {
+              final myPending = transfers
+                  .where((t) =>
+                      t.fromUserId == currentUserId &&
+                      shared.hasPendingSettlement(
+                        roomId: roomId,
+                        fromUserId: t.fromUserId,
+                        toUserId: t.toUserId,
+                      ))
+                  .toList();
+              final allMyTransfersAlreadyPending = transfers
+                  .where((t) => t.fromUserId == currentUserId)
+                  .every((t) => shared.hasPendingSettlement(
+                        roomId: roomId,
+                        fromUserId: t.fromUserId,
+                        toUserId: t.toUserId,
+                      ));
+              final disableButton = myPending.isNotEmpty &&
+                  allMyTransfersAlreadyPending &&
+                  transfers.any((t) => t.fromUserId == currentUserId);
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (myPending.isNotEmpty)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: cs.tertiaryContainer.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(10),
+                        border:
+                            Border.all(color: cs.tertiary.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.hourglass_top_rounded,
+                              size: 16, color: cs.tertiary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              myPending.length == 1
+                                  ? 'Waiting for ${displayName(myPending.first.toUserId)} to confirm.'
+                                  : '${myPending.length} payments awaiting approval.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  );
-                },
-                child: const Text(
-                  'Mark all settled',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      onPressed: disableButton
+                          ? null
+                          : () async {
+                              HapticFeedback.mediumImpact();
+                              final n = await shared.settleAll(roomId);
+                              if (!context.mounted) return;
+                              Navigator.of(context).pop();
+
+                              // Distinct messaging when the current user is
+                              // the debtor — payments need approval first.
+                              final iAmDebtor = transfers.any(
+                                  (t) => t.fromUserId == currentUserId);
+                              String msg;
+                              if (n == 0) {
+                                msg = 'Nothing new to settle.';
+                              } else if (iAmDebtor) {
+                                final firstCreditor = transfers
+                                    .firstWhere(
+                                      (t) => t.fromUserId == currentUserId,
+                                      orElse: () => transfers.first,
+                                    )
+                                    .toUserId;
+                                final name = displayName(firstCreditor);
+                                msg = n == 1
+                                    ? 'Sent for approval — waiting for $name to confirm.'
+                                    : 'Sent $n payments for approval.';
+                              } else {
+                                msg =
+                                    'Recorded $n settlement${n == 1 ? "" : "s"}.';
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(msg)),
+                              );
+                            },
+                      child: Text(
+                        disableButton
+                            ? 'Awaiting approval'
+                            : 'Send for approval',
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
           ],
         ],
       ),

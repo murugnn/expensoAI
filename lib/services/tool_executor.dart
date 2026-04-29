@@ -15,9 +15,15 @@ import 'package:expenso/providers/contact_provider.dart';
 import 'package:expenso/providers/app_settings_provider.dart';
 import 'package:expenso/providers/business_provider.dart';
 import 'package:expenso/providers/shared_provider.dart';
+import 'package:expenso/providers/social_provider.dart';
 import 'package:expenso/models/shared_room.dart';
 import 'package:expenso/models/shared_expense.dart';
+import 'package:expenso/models/shared_settlement.dart';
+import 'package:expenso/models/friend_request.dart';
+import 'package:expenso/models/room_invite.dart';
+import 'package:expenso/models/user_profile.dart';
 import 'package:expenso/services/shared_service.dart';
+import 'package:expenso/services/referral_service.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 import 'package:expenso/features/goals/models/goal_model.dart';
 import 'package:expenso/services/currency_service.dart';
@@ -149,6 +155,38 @@ class ToolExecutor {
         return _handleSuggestSettlement(args, context);
       case 'settleSharedExpense':
         return _handleSettleSharedExpense(args, context);
+      case 'approveSettlement':
+        return _handleApproveSettlement(args, context);
+      case 'rejectSettlement':
+        return _handleRejectSettlement(args, context);
+
+      // ============================================================
+      // SOCIAL LAYER (friends, contacts, invites, referrals) TOOLS
+      // ============================================================
+      case 'syncContacts':
+        return _handleSyncContacts(args, context);
+      case 'findExpensoFriends':
+        return _handleFindExpensoFriends(args, context);
+      case 'sendFriendRequest':
+        return _handleSendFriendRequest(args, context);
+      case 'acceptFriendRequest':
+        return _handleAcceptFriendRequest(args, context);
+      case 'inviteContactToExpenso':
+        return _handleInviteContactToExpenso(args, context);
+      case 'createReferralInvite':
+        return _handleCreateReferralInvite(args, context);
+      case 'inviteFriendToRoom':
+        return _handleInviteFriendToRoom(args, context);
+      case 'joinRoomByInvite':
+        return _handleJoinRoomByInvite(args, context);
+      case 'sendSettlementReminder':
+        return _handleSendSettlementReminder(args, context);
+      case 'listPendingInvites':
+        return _handleListPendingInvites(args, context);
+      case 'shareRoomLink':
+        return _handleShareRoomLink(args, context);
+      case 'removeFriend':
+        return _handleRemoveFriend(args, context);
 
       default:
         debugPrint('[ToolExecutor] Unknown function: $name');
@@ -1830,13 +1868,200 @@ class ToolExecutor {
     BuildContext context,
   ) async {
     final shared = context.read<SharedProvider>();
+    final auth = context.read<AuthProvider>();
+    final me = auth.currentUser?.id;
+    if (me == null) return 'You need to sign in first.';
+
     final hint = args['roomNameOrCode'] as String?;
     final room = _findRoom(shared, hint);
     if (room == null) return 'You are not in any shared rooms yet.';
 
-    final n = await shared.settleAll(room.id);
-    if (n == 0) return 'Nothing to settle in ${room.roomName}.';
-    return '✅ Settled $n transfer${n == 1 ? "" : "s"} in ${room.roomName}.';
+    // The "initiator" controls whether each settlement is created pending
+    // (debtor proposing) or completed (creditor logging cash). The voice
+    // intent here is "I paid X" — so the speaker is the debtor. We allow
+    // an explicit override via args['initiator'] in case Niva ever uses
+    // this tool on the creditor's behalf for cash they received.
+    final explicitInitiator = (args['initiator'] as String?)?.trim();
+    final initiator =
+        (explicitInitiator == null || explicitInitiator.isEmpty)
+            ? me
+            : (explicitInitiator == 'creditor'
+                ? null /* sentinel handled below */
+                : me);
+
+    // For 'creditor' initiator, settleAll cannot express it directly because
+    // the debtor varies per transfer. Fall back to per-transfer recording.
+    final transfers = shared.suggestSettlementsFor(room.id);
+    if (transfers.isEmpty) return 'Nothing to settle in ${room.roomName}.';
+
+    int created = 0;
+    int alreadyPending = 0;
+    for (final t in transfers) {
+      final actor = (initiator == null) ? t.toUserId : initiator;
+      if (shared.hasPendingSettlement(
+        roomId: room.id,
+        fromUserId: t.fromUserId,
+        toUserId: t.toUserId,
+      )) {
+        alreadyPending++;
+        continue;
+      }
+      final s = await shared.recordSettlement(
+        roomId: room.id,
+        fromUserId: t.fromUserId,
+        toUserId: t.toUserId,
+        amount: t.amount,
+        note: 'Niva',
+        requestedBy: actor,
+      );
+      if (s != null) created++;
+    }
+
+    if (created == 0 && alreadyPending == 0) {
+      return 'Nothing to settle in ${room.roomName}.';
+    }
+    if (created == 0) {
+      return '${room.roomName}: $alreadyPending payment${alreadyPending == 1 ? "" : "s"} already awaiting approval.';
+    }
+    final iAmDebtor = transfers.any((t) => t.fromUserId == me);
+    if (iAmDebtor && initiator == me) {
+      return '✅ Sent $created payment${created == 1 ? "" : "s"} in ${room.roomName} for approval.';
+    }
+    return '✅ Settled $created transfer${created == 1 ? "" : "s"} in ${room.roomName}.';
+  }
+
+  static Future<String?> _handleApproveSettlement(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final shared = context.read<SharedProvider>();
+    final auth = context.read<AuthProvider>();
+    final me = auth.currentUser?.id;
+    if (me == null) return 'You need to sign in first.';
+
+    final hint = args['roomNameOrCode'] as String?;
+    final fromName = (args['fromUserName'] as String?)?.trim().toLowerCase();
+    final settlementId = (args['settlementId'] as String?)?.trim();
+
+    // 1. Direct settlement-id path (cleanest).
+    if (settlementId != null && settlementId.isNotEmpty) {
+      final updated = await shared.approveSettlement(settlementId);
+      if (updated == null) {
+        return 'Could not approve that payment.';
+      }
+      return '✅ Confirmed payment of ${updated.amount.toStringAsFixed(2)}.';
+    }
+
+    // 2. Otherwise look for a pending row in the requested room from the
+    //    named debtor.
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'You are not in any shared rooms yet.';
+
+    final pending = shared.pendingApprovalsFor(room.id, me);
+    if (pending.isEmpty) {
+      return 'No payments awaiting your approval in ${room.roomName}.';
+    }
+
+    final members = shared.membersOf(room.id);
+    SharedSettlement? match;
+    if (fromName != null && fromName.isNotEmpty) {
+      for (final s in pending) {
+        final name = (members
+                    .where((m) => m.userId == s.fromUser)
+                    .firstOrNull
+                    ?.displayName ??
+                '')
+            .toLowerCase();
+        if (name.contains(fromName)) {
+          match = s;
+          break;
+        }
+      }
+    } else if (pending.length == 1) {
+      match = pending.first;
+    }
+
+    if (match == null) {
+      return pending.length == 1
+          ? 'Did you mean the pending payment from ${members.where((m) => m.userId == pending.first.fromUser).firstOrNull?.displayName ?? "a member"}?'
+          : 'There are ${pending.length} pending payments — tell me whose to approve.';
+    }
+
+    final updated = await shared.approveSettlement(match.id);
+    if (updated == null) return 'Could not approve the payment.';
+    final senderName = members
+            .where((m) => m.userId == updated.fromUser)
+            .firstOrNull
+            ?.displayName ??
+        'Member';
+    return '✅ Confirmed ${senderName}\'s payment of ${updated.amount.toStringAsFixed(2)}.';
+  }
+
+  static Future<String?> _handleRejectSettlement(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final shared = context.read<SharedProvider>();
+    final auth = context.read<AuthProvider>();
+    final me = auth.currentUser?.id;
+    if (me == null) return 'You need to sign in first.';
+
+    final hint = args['roomNameOrCode'] as String?;
+    final fromName = (args['fromUserName'] as String?)?.trim().toLowerCase();
+    final settlementId = (args['settlementId'] as String?)?.trim();
+    final reason = (args['reason'] as String?)?.trim();
+
+    if (settlementId != null && settlementId.isNotEmpty) {
+      final updated = await shared.rejectSettlement(
+        settlementId,
+        reason: (reason == null || reason.isEmpty) ? null : reason,
+      );
+      if (updated == null) return 'Could not reject that payment.';
+      return '🚫 Rejected payment.';
+    }
+
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'You are not in any shared rooms yet.';
+
+    final pending = shared.pendingApprovalsFor(room.id, me);
+    if (pending.isEmpty) {
+      return 'No payments awaiting your approval in ${room.roomName}.';
+    }
+
+    final members = shared.membersOf(room.id);
+    SharedSettlement? match;
+    if (fromName != null && fromName.isNotEmpty) {
+      for (final s in pending) {
+        final name = (members
+                    .where((m) => m.userId == s.fromUser)
+                    .firstOrNull
+                    ?.displayName ??
+                '')
+            .toLowerCase();
+        if (name.contains(fromName)) {
+          match = s;
+          break;
+        }
+      }
+    } else if (pending.length == 1) {
+      match = pending.first;
+    }
+
+    if (match == null) {
+      return 'There are ${pending.length} pending payments — tell me whose to reject.';
+    }
+
+    final updated = await shared.rejectSettlement(
+      match.id,
+      reason: (reason == null || reason.isEmpty) ? null : reason,
+    );
+    if (updated == null) return 'Could not reject the payment.';
+    final senderName = members
+            .where((m) => m.userId == updated.fromUser)
+            .firstOrNull
+            ?.displayName ??
+        'Member';
+    return '🚫 Rejected ${senderName}\'s payment of ${updated.amount.toStringAsFixed(2)}.';
   }
 
   // ============================================================
@@ -1952,11 +2177,70 @@ class ToolExecutor {
           'function': {
             'name': 'settleSharedExpense',
             'description':
-                'Mark all suggested transfers in a room as settled. Use when the user says "settle all balances", "we paid everyone", etc. Always confirm with the user first.',
+                'Initiate the suggested transfers in a room. By default the speaker is treated as the debtor — each transfer is created as a pending request awaiting the creditor\'s approval. Use when the user says "I paid Alex 500 rupees", "settle up our trip", etc. Always confirm with the user first.',
             'parameters': {
               'type': 'object',
               'properties': {
                 'roomNameOrCode': {'type': 'string'},
+                'initiator': {
+                  'type': 'string',
+                  'enum': ['debtor', 'creditor'],
+                  'description':
+                      'Who is initiating. "debtor" (default) creates pending settlements; "creditor" records cash already received and finalises immediately.',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'approveSettlement',
+            'description':
+                'Approve a pending settlement that someone marked as paid to the current user. Use when the speaker is the creditor and says "approve Sam\'s payment", "yes I got it from Alex", "confirm the 500 from Riya".',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {
+                  'type': 'string',
+                  'description':
+                      'Room name or code. If omitted, uses the most recent room.',
+                },
+                'fromUserName': {
+                  'type': 'string',
+                  'description':
+                      'Name (fuzzy) of the debtor whose payment to approve. Optional if there is only one pending payment.',
+                },
+                'settlementId': {
+                  'type': 'string',
+                  'description':
+                      'Direct settlement id, when known. Skips name lookup.',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'rejectSettlement',
+            'description':
+                'Reject (dispute) a pending settlement that someone marked as paid to the current user. Use when the speaker is the creditor and says "reject Sam\'s payment", "I never got that money from Alex", "dispute the 500 settlement".',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {'type': 'string'},
+                'fromUserName': {
+                  'type': 'string',
+                  'description':
+                      'Name (fuzzy) of the debtor whose payment to reject.',
+                },
+                'settlementId': {'type': 'string'},
+                'reason': {
+                  'type': 'string',
+                  'description':
+                      'Optional reason shown to the debtor in the rejection notification.',
+                },
               },
             },
           },
@@ -1974,8 +2258,8 @@ class ToolExecutor {
 
   /// Returns the complete, mode-appropriate tool set for Niva.
   ///
-  /// [NivaMode.personal] → core tools + agentic analytics tools
-  /// [NivaMode.business] → personal tools + business accounting tools
+  /// [NivaMode.personal] → core tools + agentic analytics tools + social tools
+  /// [NivaMode.business] → personal tools + business accounting tools + social tools
   ///
   /// Use this in both the voice service and the text chat service to ensure
   /// a consistent, mode-aware tool surface.
@@ -1983,6 +2267,540 @@ class ToolExecutor {
     ...coreToolDefinitions,
     ...agenticToolDefinitions,
     ...sharedToolDefinitions,
+    ...socialToolDefinitions,
     if (mode == NivaMode.business) ...businessToolDefinitions,
   ];
+
+  // ============================================================
+  // SOCIAL LAYER — TOOL HANDLERS
+  // ============================================================
+
+  /// Fuzzy match a friend by display name. Returns null if no friend matches.
+  static UserProfile? _findFriendByName(SocialProvider social, String? query) {
+    if (query == null || query.trim().isEmpty) return null;
+    final lower = query.trim().toLowerCase();
+    for (final p in social.friends) {
+      final n = (p.displayName ?? '').toLowerCase();
+      if (n == lower || n.contains(lower)) return p;
+    }
+    return null;
+  }
+
+  static FriendRequest? _findIncomingRequestByName(
+    SocialProvider social,
+    String? query,
+  ) {
+    final pending = social.incomingRequests;
+    if (pending.isEmpty) return null;
+    if (query == null || query.trim().isEmpty) return pending.first;
+    final lower = query.trim().toLowerCase();
+    for (final r in pending) {
+      final n = social.profileOf(r.fromUser)?.displayName?.toLowerCase() ?? '';
+      if (n.contains(lower)) return r;
+    }
+    return null;
+  }
+
+  static RoomInvite? _findIncomingRoomInviteByName(
+    SocialProvider social,
+    SharedProvider shared,
+    String? query,
+  ) {
+    final pending = social.incomingRoomInvites;
+    if (pending.isEmpty) return null;
+    if (query == null || query.trim().isEmpty) return pending.first;
+    final lower = query.trim().toLowerCase();
+    for (final inv in pending) {
+      final r = shared.roomById(inv.roomId);
+      if ((r?.roomName.toLowerCase() ?? '').contains(lower)) return inv;
+    }
+    return null;
+  }
+
+  static Future<String?> _handleSyncContacts(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final social = context.read<SocialProvider>();
+    final granted = await social.hasContactPermission();
+    if (!granted) {
+      return 'I need contacts permission. Open Expenso → Friends → Sync Contacts to allow it.';
+    }
+    final ok = await social.syncContacts();
+    if (!ok) {
+      return social.lastError == 'permission_denied'
+          ? 'Contacts permission was denied. Enable it in your phone settings.'
+          : 'Sync failed. Please try again.';
+    }
+    final n = social.expensoFriendsFromContacts.length;
+    return n == 0
+        ? '✅ Synced contacts. None of your contacts are on Expenso yet.'
+        : '✅ Synced contacts. $n of your contacts are on Expenso.';
+  }
+
+  static String? _handleFindExpensoFriends(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) {
+    final social = context.read<SocialProvider>();
+    final list = social.expensoFriendsFromContacts;
+    if (list.isEmpty) {
+      return 'None of your contacts are on Expenso yet. Try inviting some via "Invite to Expenso".';
+    }
+    final friendIds = social.friendIds;
+    final buf = StringBuffer();
+    buf.writeln('${list.length} of your contacts are on Expenso:');
+    for (final m in list.take(10)) {
+      final isFriend =
+          m.matchedUserId != null && friendIds.contains(m.matchedUserId);
+      buf.writeln('  • ${m.displayName}${isFriend ? "  (friend)" : ""}');
+    }
+    if (list.length > 10) buf.writeln('  …and ${list.length - 10} more');
+    return buf.toString();
+  }
+
+  static Future<String?> _handleSendFriendRequest(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final query = (args['nameOrCode'] as String?)?.trim();
+    if (query == null || query.isEmpty) {
+      return 'Tell me who you want to add as a friend.';
+    }
+    final social = context.read<SocialProvider>();
+
+    // 1. Referral-code style match (5–8 alphanumerics).
+    final upper = query.toUpperCase();
+    if (RegExp(r'^[A-Z0-9]{5,8}$').hasMatch(upper)) {
+      final p = await social.findUserByReferralCode(upper);
+      if (p != null) {
+        final ok = await social.sendFriendRequest(p.id);
+        if (ok) return '✅ Friend request sent to ${p.displayName ?? "user"}.';
+        return _friendRequestError(social.lastError, p.displayName);
+      }
+    }
+
+    // 2. Name match against contact_matches that resolved to a user.
+    final lower = query.toLowerCase();
+    for (final m in social.expensoFriendsFromContacts) {
+      if (m.displayName.toLowerCase().contains(lower) &&
+          m.matchedUserId != null) {
+        final ok = await social.sendFriendRequest(m.matchedUserId!);
+        if (ok) return '✅ Friend request sent to ${m.displayName}.';
+        return _friendRequestError(social.lastError, m.displayName);
+      }
+    }
+    return 'I couldn\'t find "$query" on Expenso. Try syncing contacts first, or use their referral code.';
+  }
+
+  static String _friendRequestError(String? code, String? name) {
+    final who = name ?? 'them';
+    switch (code) {
+      case 'already_friends':
+        return 'You\'re already friends with $who.';
+      case 'cannot_friend_self':
+        return 'You can\'t friend yourself.';
+      default:
+        return 'Could not send the request. Please try again.';
+    }
+  }
+
+  static Future<String?> _handleAcceptFriendRequest(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final query = args['name'] as String?;
+    final social = context.read<SocialProvider>();
+    final target = _findIncomingRequestByName(social, query);
+    if (target == null) return 'You have no pending friend requests.';
+    final ok = await social.acceptFriendRequest(target.id);
+    if (!ok) return 'Could not accept the request right now.';
+    final p = social.profileOf(target.fromUser);
+    return '✅ Accepted ${p?.displayName ?? "the"} friend request.';
+  }
+
+  static Future<String?> _handleInviteContactToExpenso(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final query = (args['name'] as String?)?.trim();
+    final channel = (args['channel'] as String? ?? 'share').toLowerCase();
+    if (query == null || query.isEmpty) {
+      return 'Tell me whom to invite.';
+    }
+    final social = context.read<SocialProvider>();
+    final lower = query.toLowerCase();
+    final match = social.nonExpensoContacts
+        .where((m) => m.displayName.toLowerCase().contains(lower))
+        .toList()
+        .firstOrNull;
+    if (match == null) {
+      return 'I couldn\'t find "$query" in your contacts.';
+    }
+
+    final referral = ReferralService();
+    await referral.refreshOwnReferralCode();
+    final auth = context.read<AuthProvider>();
+    final msg = referral.buildShareMessage(
+      referralCode: referral.ownReferralCode,
+      inviterName: auth.userName,
+      recipientName: match.displayName,
+    );
+
+    bool launched = false;
+    switch (channel) {
+      case 'whatsapp':
+        launched = await referral.shareViaWhatsApp(msg, phone: match.localPhone);
+        break;
+      case 'sms':
+        if (match.localPhone == null) {
+          return 'I don\'t have a phone number for ${match.displayName}.';
+        }
+        launched = await referral.shareViaSms(match.localPhone!, msg);
+        break;
+      case 'email':
+        if (match.localEmail == null) {
+          return 'I don\'t have an email for ${match.displayName}.';
+        }
+        launched = await referral.shareViaEmail(match.localEmail!, msg);
+        break;
+      default:
+        await referral.shareViaSystem(msg);
+        launched = true;
+    }
+    await referral.recordOutboundReferral(
+      channel: channel,
+      code: referral.ownReferralCode,
+    );
+    return launched
+        ? '✅ Opened invite for ${match.displayName} via $channel.'
+        : 'Could not open $channel.';
+  }
+
+  static Future<String?> _handleCreateReferralInvite(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final referral = ReferralService();
+    await referral.refreshOwnReferralCode();
+    final auth = context.read<AuthProvider>();
+    final msg = referral.buildShareMessage(
+      referralCode: referral.ownReferralCode,
+      inviterName: auth.userName,
+    );
+    await referral.shareViaSystem(msg, subject: 'Join me on Expenso');
+    await referral.recordOutboundReferral(channel: 'share');
+    return '✅ Opened the share sheet with your invite link.';
+  }
+
+  static Future<String?> _handleInviteFriendToRoom(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final friendName = (args['friendName'] as String?)?.trim();
+    final roomHint = args['roomNameOrCode'] as String?;
+    if (friendName == null || friendName.isEmpty) {
+      return 'Tell me which friend to invite.';
+    }
+    final social = context.read<SocialProvider>();
+    final shared = context.read<SharedProvider>();
+    final room = _findRoom(shared, roomHint);
+    if (room == null) {
+      return 'No matching shared room. Tell me which room to use.';
+    }
+    final friend = _findFriendByName(social, friendName);
+    if (friend == null) {
+      return '$friendName isn\'t one of your friends yet. Send a friend request first.';
+    }
+    final ok = await social.inviteFriendToRoom(room.id, friend.id);
+    if (ok) {
+      return '✅ Invited ${friend.displayName ?? "your friend"} to ${room.roomName}.';
+    }
+    switch (social.lastError) {
+      case 'already_member':
+        return '${friend.displayName ?? "They"} are already in ${room.roomName}.';
+      case 'not_a_member':
+        return 'You\'re not a member of ${room.roomName}, so you can\'t invite others.';
+      default:
+        return 'Could not send the invite right now.';
+    }
+  }
+
+  static Future<String?> _handleJoinRoomByInvite(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final social = context.read<SocialProvider>();
+    final shared = context.read<SharedProvider>();
+    final query = args['roomName'] as String?;
+    final target = _findIncomingRoomInviteByName(social, shared, query);
+    if (target == null) return 'You have no pending room invites.';
+    final roomId = await social.acceptRoomInvite(target.id);
+    if (roomId == null) return 'Could not accept the invite right now.';
+    await shared.loadAll();
+    final r = shared.roomById(roomId);
+    return '✅ Joined "${r?.roomName ?? "the room"}".';
+  }
+
+  static Future<String?> _handleSendSettlementReminder(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final shared = context.read<SharedProvider>();
+    final social = context.read<SocialProvider>();
+    final hint = args['roomNameOrCode'] as String?;
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'No matching shared room.';
+    final n = await social.sendSettlementReminder(room.id);
+    if (n == 0) return 'Couldn\'t send reminders right now.';
+    return '✅ Sent settlement reminder to $n member${n == 1 ? "" : "s"} in ${room.roomName}.';
+  }
+
+  static String? _handleListPendingInvites(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) {
+    final social = context.read<SocialProvider>();
+    final shared = context.read<SharedProvider>();
+    final friendReqs = social.incomingRequests;
+    final roomInv = social.incomingRoomInvites;
+    if (friendReqs.isEmpty && roomInv.isEmpty) {
+      return 'No pending invites — you\'re all caught up.';
+    }
+    final buf = StringBuffer();
+    if (friendReqs.isNotEmpty) {
+      buf.writeln('Friend requests (${friendReqs.length}):');
+      for (final r in friendReqs.take(5)) {
+        final p = social.profileOf(r.fromUser);
+        buf.writeln('  • ${p?.displayName ?? "Someone"}');
+      }
+    }
+    if (roomInv.isNotEmpty) {
+      if (buf.isNotEmpty) buf.writeln();
+      buf.writeln('Room invites (${roomInv.length}):');
+      for (final r in roomInv.take(5)) {
+        final room = shared.roomById(r.roomId);
+        final from = social.profileOf(r.fromUser);
+        buf.writeln(
+            '  • ${room?.roomName ?? "A room"} — from ${from?.displayName ?? "someone"}');
+      }
+    }
+    return buf.toString();
+  }
+
+  static Future<String?> _handleShareRoomLink(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final shared = context.read<SharedProvider>();
+    final hint = args['roomNameOrCode'] as String?;
+    final room = _findRoom(shared, hint);
+    if (room == null) return 'No matching shared room.';
+    final referral = ReferralService();
+    final auth = context.read<AuthProvider>();
+    final msg = referral.buildRoomShareMessage(
+      roomName: room.roomName,
+      roomCode: room.roomCode,
+      inviterName: auth.userName,
+    );
+    await referral.shareViaSystem(
+      msg,
+      subject: 'Join "${room.roomName}" on Expenso',
+    );
+    return '✅ Opened share sheet for ${room.roomName} (code ${room.roomCode}).';
+  }
+
+  static Future<String?> _handleRemoveFriend(
+    Map<String, dynamic> args,
+    BuildContext context,
+  ) async {
+    final query = (args['name'] as String?)?.trim();
+    if (query == null || query.isEmpty) {
+      return 'Tell me which friend to remove.';
+    }
+    final social = context.read<SocialProvider>();
+    final friend = _findFriendByName(social, query);
+    if (friend == null) return 'No friend matching "$query".';
+    final ok = await social.removeFriend(friend.id);
+    return ok
+        ? '✅ Removed ${friend.displayName ?? "the friend"} from your friends.'
+        : 'Could not remove the friend right now.';
+  }
+
+  // ============================================================
+  // SOCIAL LAYER — TOOL DEFINITIONS (for LLM)
+  // ============================================================
+
+  static List<Map<String, dynamic>> get socialToolDefinitions => [
+        {
+          'type': 'function',
+          'function': {
+            'name': 'syncContacts',
+            'description':
+                'Import the user\'s phone contacts (with permission) and detect which of them are already on Expenso. Use when the user says "sync contacts", "find my friends", "who do I know on Expenso".',
+            'parameters': {'type': 'object', 'properties': {}},
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'findExpensoFriends',
+            'description':
+                'List the user\'s phone contacts who already use Expenso. Use when the user asks "which contacts are on Expenso", "show my Expenso friends", etc.',
+            'parameters': {'type': 'object', 'properties': {}},
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'sendFriendRequest',
+            'description':
+                'Send a friend request to another Expenso user, by their display name (matched against synced contacts) or their referral code. Use when the user says "add Ash as a friend", "friend Rahul", "send a friend request to ABC123".',
+            'parameters': {
+              'type': 'object',
+              'required': ['nameOrCode'],
+              'properties': {
+                'nameOrCode': {
+                  'type': 'string',
+                  'description':
+                      'Friend display name OR a referral code like "ABC1234".',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'acceptFriendRequest',
+            'description':
+                'Accept a pending incoming friend request. If a name is given, accept that one; otherwise accept the most recent pending request.',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'name': {
+                  'type': 'string',
+                  'description': 'Name of the requester (optional).',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'removeFriend',
+            'description':
+                'Unfriend an existing friend. Always confirm with the user before calling this.',
+            'parameters': {
+              'type': 'object',
+              'required': ['name'],
+              'properties': {
+                'name': {'type': 'string'},
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'inviteContactToExpenso',
+            'description':
+                'Send an invite-to-install message to a phone contact who isn\'t on Expenso yet. Use when the user says "invite Priya to Expenso".',
+            'parameters': {
+              'type': 'object',
+              'required': ['name'],
+              'properties': {
+                'name': {'type': 'string'},
+                'channel': {
+                  'type': 'string',
+                  'enum': ['whatsapp', 'sms', 'email', 'share'],
+                  'description':
+                      'How to deliver the invite. Defaults to the system share sheet.',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'createReferralInvite',
+            'description':
+                'Open the system share sheet with the user\'s personalized invite link and referral code.',
+            'parameters': {'type': 'object', 'properties': {}},
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'inviteFriendToRoom',
+            'description':
+                'Invite an existing Expenso friend into one of the user\'s shared rooms. Use when the user says "invite Ash to Goa Trip room", "add Maya to Flatmates".',
+            'parameters': {
+              'type': 'object',
+              'required': ['friendName'],
+              'properties': {
+                'friendName': {'type': 'string'},
+                'roomNameOrCode': {
+                  'type': 'string',
+                  'description':
+                      'Room name (fuzzy) or 6-character code. Defaults to the most recent room.',
+                },
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'joinRoomByInvite',
+            'description':
+                'Accept a pending shared-room invite. Use when the user says "accept the invite", "join the room Rahul invited me to".',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomName': {'type': 'string'},
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'sendSettlementReminder',
+            'description':
+                'Notify every other member of a shared room to settle up. Use when the user says "remind everyone to pay", "send a reminder for Goa Trip".',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {'type': 'string'},
+              },
+            },
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'listPendingInvites',
+            'description':
+                'List all pending friend requests and pending shared-room invites for the user.',
+            'parameters': {'type': 'object', 'properties': {}},
+          },
+        },
+        {
+          'type': 'function',
+          'function': {
+            'name': 'shareRoomLink',
+            'description':
+                'Open the system share sheet with a shared room\'s code and join link, for sharing with people who aren\'t friends yet.',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'roomNameOrCode': {'type': 'string'},
+              },
+            },
+          },
+        },
+      ];
 }

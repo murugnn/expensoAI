@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart'; // Ensure share_plus is in pubspec or use clipboard
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:expenso/providers/auth_provider.dart';
 import 'package:expenso/services/referral_service.dart';

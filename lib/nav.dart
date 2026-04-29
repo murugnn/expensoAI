@@ -10,6 +10,7 @@ import 'package:expenso/features/auth/confirm_email_screen.dart';
 import 'package:expenso/features/auth/splash_screen.dart';
 import 'package:expenso/features/auth/login_screen.dart';
 import 'package:expenso/features/auth/signup_screen.dart';
+import 'package:expenso/features/auth/redeem_code_screen.dart';
 // DashboardScreen is now handled by MainScreen
 import 'package:expenso/features/profile/profile_screen.dart';
 import 'package:expenso/features/onboarding/walkthrough_screen.dart';
@@ -20,6 +21,7 @@ import 'package:expenso/features/shop/rewards_shop_screen.dart';
 import 'package:expenso/features/streak/streak_screen.dart';
 import 'package:expenso/features/demon_fight/demon_fight_screen.dart';
 import 'package:expenso/features/settings/manage_contacts_screen.dart';
+import 'package:expenso/features/social/social_screen.dart';
 import 'package:expenso/features/settings/manage_subscriptions_screen.dart';
 import 'package:expenso/features/main_screen.dart';
 import 'package:expenso/features/settings/referral_screen.dart';
@@ -43,6 +45,7 @@ class AppRoutes {
   static const String rewardsShop = '/rewards-shop';
   static const String streak = '/streak';
   static const String resetPassword = '/reset-password';
+  static const String redeemCode = '/redeem-code';
   static const String chat = '/chat';
 
   static final router = GoRouter(
@@ -50,6 +53,11 @@ class AppRoutes {
     redirect: (context, state) {
       final auth = context.read<AuthProvider>();
       final settings = context.read<AppSettingsProvider>();
+
+      // Wait for AuthProvider to finish its async init
+      if (!auth.isReady) {
+        return state.matchedLocation == splash ? null : splash;
+      }
 
       final isLoggedIn = auth.isAuthenticated;
       final walkthroughEnabled = settings.walkthroughEnabled;
@@ -59,6 +67,7 @@ class AppRoutes {
       final goingToSignup = state.matchedLocation == signup;
       final goingToSplash = state.matchedLocation == splash;
       final goingToConfirmEmail = state.matchedLocation == confirmEmail;
+      final goingToRedeemCode = state.matchedLocation == redeemCode;
 
       if (auth.isPasswordRecovery) {
         return resetPassword;
@@ -71,11 +80,17 @@ class AppRoutes {
         return login;
       }
 
+      // New OAuth user → needs to complete setup via redeem code screen
+      if (auth.needsSetup) {
+        return goingToRedeemCode ? null : redeemCode;
+      }
+
       if (goingToSplash ||
           goingToLogin ||
           goingToSignup ||
           goingToWalkthrough ||
-          goingToConfirmEmail) {
+          goingToConfirmEmail ||
+          goingToRedeemCode) {
         return dashboard;
       }
 
@@ -89,6 +104,7 @@ class AppRoutes {
       ),
       GoRoute(path: login, builder: (context, state) => const LoginScreen()),
       GoRoute(path: signup, builder: (context, state) => const SignupScreen()),
+      GoRoute(path: redeemCode, builder: (context, state) => const RedeemCodeScreen()),
 
       // Main Screen (Dashboard) holds the BottomNavBar
       GoRoute(path: dashboard, builder: (context, state) => MainScreen(key: mainScreenKey)),
@@ -123,7 +139,7 @@ class AppRoutes {
       ),
       GoRoute(
         path: '/settings/contacts',
-        builder: (context, state) => const ManageContactsScreen(),
+        builder: (context, state) => const SocialScreen(),
       ),
       GoRoute(
         path: '/settings/subscriptions',

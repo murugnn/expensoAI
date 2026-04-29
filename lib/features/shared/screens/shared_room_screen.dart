@@ -12,8 +12,10 @@ import 'package:expenso/models/shared_expense.dart';
 import 'package:expenso/models/shared_room.dart';
 import 'package:expenso/models/shared_settlement.dart';
 import 'package:expenso/providers/shared_provider.dart';
+import 'package:expenso/providers/social_provider.dart';
 import 'package:expenso/features/shared/sheets/add_shared_expense_sheet.dart';
 import 'package:expenso/features/shared/sheets/settle_up_sheet.dart';
+import 'package:expenso/features/social/sheets/invite_friends_to_room_sheet.dart';
 
 class SharedRoomScreen extends StatefulWidget {
   final String roomId;
@@ -132,6 +134,10 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
         .net;
 
     final totalSpent = expenses.fold<double>(0, (s, e) => s + e.amount);
+    final pendingApprovals =
+        shared.pendingApprovalsFor(widget.roomId, widget.currentUserId);
+    final pendingProposals =
+        shared.pendingProposalsBy(widget.roomId, widget.currentUserId);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -183,22 +189,104 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
                 Expanded(
                   child: _ActionTile(
                     icon: Icons.add_rounded,
-                    label: 'Add expense',
+                    label: 'Add',
                     primary: true,
                     onTap: () => _addExpense(context),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: _ActionTile(
                     icon: Icons.compare_arrows_rounded,
-                    label: 'Settle up',
+                    label: 'Settle',
+                    badgeCount: pendingApprovals.length,
                     onTap: () => _settleUp(context),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _ActionTile(
+                    icon: Icons.person_add_outlined,
+                    label: 'Invite',
+                    onTap: () => InviteFriendsToRoomSheet.show(
+                      context,
+                      roomId: widget.roomId,
+                      roomName: room.roomName,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 24),
+
+            // ---- Pending approvals (creditor view) ----
+            if (pendingApprovals.isNotEmpty) ...[
+              _SectionTitle(
+                title: 'Pending approvals',
+                subtitle:
+                    '${pendingApprovals.length} payment${pendingApprovals.length == 1 ? '' : 's'} need your confirmation',
+              ),
+              const SizedBox(height: 10),
+              ...pendingApprovals.map((s) {
+                final sender = members
+                    .where((m) => m.userId == s.fromUser)
+                    .firstOrNull;
+                final senderName =
+                    sender?.displayName ?? _shortId(s.fromUser);
+                return _PendingApprovalCard(
+                  settlement: s,
+                  fromName: senderName,
+                  currency: widget.currencySymbol,
+                  onAccept: () => _approvePending(context, s.id, senderName),
+                  onReject: () =>
+                      _rejectPending(context, s.id, senderName),
+                );
+              }),
+              const SizedBox(height: 24),
+            ],
+
+            // ---- My pending proposals (debtor view) ----
+            if (pendingProposals.isNotEmpty) ...[
+              _SectionTitle(
+                title: 'Awaiting confirmation',
+                subtitle:
+                    'Your ${pendingProposals.length} payment${pendingProposals.length == 1 ? '' : 's'} pending the other side',
+              ),
+              const SizedBox(height: 10),
+              ...pendingProposals.map((s) {
+                final receiver = members
+                    .where((m) => m.userId == s.toUser)
+                    .firstOrNull;
+                final name = receiver?.displayName ?? _shortId(s.toUser);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: cs.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: cs.outlineVariant.withOpacity(0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.hourglass_top_rounded,
+                          size: 18, color: cs.tertiary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Waiting for $name to confirm ${widget.currencySymbol}${s.amount.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 24),
+            ],
 
             // ---- Member balances ----
             if (balances.isNotEmpty) ...[
@@ -212,6 +300,14 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
                 final color = b.net > 0
                     ? const Color(0xFF4E9F3D)
                     : (b.net < 0 ? cs.error : cs.onSurfaceVariant);
+                
+                final member = shared.membersOf(widget.roomId).where((m) => m.userId == b.userId).firstOrNull;
+                final avatarUrl = member?.avatarUrl;
+
+                final social = context.watch<SocialProvider>();
+                final isFriend = social.isFriend(b.userId);
+                final hasPending = social.hasOutgoingRequestTo(b.userId);
+
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.symmetric(
@@ -227,13 +323,14 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
                       CircleAvatar(
                         radius: 16,
                         backgroundColor: cs.primary.withOpacity(0.12),
-                        child: Text(
+                        backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                        child: avatarUrl == null ? Text(
                           name.substring(0, 1).toUpperCase(),
                           style: TextStyle(
                               color: cs.primary,
                               fontWeight: FontWeight.bold,
                               fontSize: 13),
-                        ),
+                        ) : null,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -242,6 +339,47 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
+                      if (!isMe && !isFriend)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: hasPending
+                              ? Tooltip(
+                                  message: 'Request sent',
+                                  child: Icon(Icons.hourglass_top_rounded,
+                                      size: 18, color: cs.onSurface.withOpacity(0.35)),
+                                )
+                              : InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () async {
+                                    HapticFeedback.lightImpact();
+                                    final ok = await social.sendFriendRequest(b.userId);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(ok
+                                              ? 'Friend request sent to $name!'
+                                              : social.lastError ?? 'Could not send request.'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: cs.primary.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.person_add_outlined, size: 14, color: cs.primary),
+                                        const SizedBox(width: 4),
+                                        Text('Add', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.primary)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                        ),
                       Text(
                         b.net == 0
                             ? 'Even'
@@ -315,6 +453,82 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
       builder: (_) => AddSharedExpenseSheet(
         roomId: widget.roomId,
         currencySymbol: widget.currencySymbol,
+      ),
+    );
+  }
+
+  Future<void> _approvePending(
+    BuildContext context,
+    String settlementId,
+    String senderName,
+  ) async {
+    HapticFeedback.lightImpact();
+    final updated =
+        await context.read<SharedProvider>().approveSettlement(settlementId);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(updated == null
+            ? 'Could not approve. Try again.'
+            : 'Confirmed payment from $senderName.'),
+      ),
+    );
+  }
+
+  Future<void> _rejectPending(
+    BuildContext context,
+    String settlementId,
+    String senderName,
+  ) async {
+    HapticFeedback.lightImpact();
+    final reasonCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Reject $senderName\'s payment?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+                'They will be notified that the payment is in dispute.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Reason (optional)',
+                hintText: 'e.g. didn\'t receive yet',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+
+    final reason = reasonCtrl.text.trim();
+    final updated = await context.read<SharedProvider>().rejectSettlement(
+          settlementId,
+          reason: reason.isEmpty ? null : reason,
+        );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(updated == null
+            ? 'Could not reject. Try again.'
+            : 'Rejected $senderName\'s payment.'),
       ),
     );
   }
@@ -641,24 +855,26 @@ class _ActionTile extends StatelessWidget {
   final String label;
   final bool primary;
   final VoidCallback onTap;
+  final int badgeCount;
   const _ActionTile({
     required this.icon,
     required this.label,
     required this.onTap,
     this.primary = false,
+    this.badgeCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Material(
+    final tile = Material(
       color: primary ? cs.primary : cs.surface,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
             border: primary
@@ -667,22 +883,165 @@ class _ActionTile extends StatelessWidget {
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon,
-                  size: 18,
+                  size: 16,
                   color: primary ? cs.onPrimary : cs.primary),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: primary ? cs.onPrimary : cs.primary,
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: primary ? cs.onPrimary : cs.primary,
+                  ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+
+    if (badgeCount <= 0) return tile;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        tile,
+        Positioned(
+          top: -4,
+          right: -4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+            decoration: BoxDecoration(
+              color: cs.error,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                width: 1.5,
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              badgeCount > 9 ? '9+' : '$badgeCount',
+              style: TextStyle(
+                color: cs.onError,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PendingApprovalCard extends StatelessWidget {
+  final SharedSettlement settlement;
+  final String fromName;
+  final String currency;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+  const _PendingApprovalCard({
+    required this.settlement,
+    required this.fromName,
+    required this.currency,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      decoration: BoxDecoration(
+        color: cs.tertiaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.tertiary.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: cs.tertiary.withOpacity(0.2),
+                child: Text(
+                  fromName.substring(0, 1).toUpperCase(),
+                  style: TextStyle(
+                    color: cs.tertiary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$fromName marked as paid',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Confirm if you received the money.',
+                      style: TextStyle(
+                          fontSize: 11, color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '$currency${settlement.amount.toStringAsFixed(2)}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: Icon(Icons.close_rounded, size: 16, color: cs.error),
+                  label: Text('Reject',
+                      style:
+                          TextStyle(color: cs.error, fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: cs.error.withOpacity(0.5)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: onReject,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.check_rounded, size: 16),
+                  label: const Text('Accept', style: TextStyle(fontSize: 13)),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: onAccept,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

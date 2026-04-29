@@ -10,6 +10,7 @@ import 'package:expenso/services/notification_service.dart';
 import 'package:expenso/services/launch_intent_service.dart';
 import 'package:expenso/services/ml_service.dart'; // Import ML Service
 import 'package:expenso/services/referral_service.dart';
+import 'package:expenso/services/push_service.dart';
 import 'package:expenso/services/sms_service.dart';
 import 'package:expenso/features/goals/services/goal_service.dart';
 
@@ -34,6 +35,7 @@ import 'package:expenso/providers/niva_voice_provider.dart';
 import 'package:expenso/providers/agentic_chat_provider.dart';
 import 'package:expenso/providers/business_provider.dart';
 import 'package:expenso/providers/shared_provider.dart';
+import 'package:expenso/providers/social_provider.dart';
 import 'package:vapi/vapi.dart';
 
 void main() async {
@@ -45,12 +47,15 @@ void main() async {
   await dotenv.load(fileName: ".env");
   await NotificationService.instance.init();
   await SmsService().init();
-  await ReferralService().init(); // Initialize Referral Service
 
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
   );
+
+  // These depend on Supabase.instance — must come after initialize()
+  await ReferralService().init();
+  await PushService.instance.register();
 
   // Initialize Vapi platform (required for web, instant on mobile)
   await VapiClient.platformInitialized.future;
@@ -108,6 +113,10 @@ class MyApp extends StatelessWidget {
           update: (_, auth, expense, shared) => shared!
             ..updateAuth(auth)
             ..updateExpense(expense),
+        ),
+        ChangeNotifierProxyProvider<AuthProvider, SocialProvider>(
+          create: (_) => SocialProvider(),
+          update: (_, auth, social) => social!..updateAuth(auth),
         ),
       ],
       child: const ExpensoApp(),

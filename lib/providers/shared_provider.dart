@@ -6,7 +6,6 @@ import 'package:expenso/models/shared_room.dart';
 import 'package:expenso/models/shared_member.dart';
 import 'package:expenso/models/shared_expense.dart';
 import 'package:expenso/models/shared_settlement.dart';
-import 'package:expenso/models/shared_settlement.dart';
 import 'package:expenso/models/expense.dart';
 import 'package:expenso/providers/auth_provider.dart';
 import 'package:expenso/providers/expense_provider.dart';
@@ -340,14 +339,20 @@ class SharedProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records a settlement. [requestedBy] determines whether the row starts
+  /// 'pending' (debtor proposing) or 'completed' (creditor self-logging).
+  /// When omitted, defaults to the current user.
   Future<SharedSettlement?> recordSettlement({
     required String roomId,
     required String fromUserId,
     required String toUserId,
     required double amount,
     String? note,
+    String? requestedBy,
   }) async {
     final user = _authProvider?.currentUser;
+    final initiator = requestedBy ?? user?.id;
+    if (initiator == null) return null;
     try {
       final s = await _service.recordSettlement(
         roomId: roomId,
@@ -355,31 +360,34 @@ class SharedProvider extends ChangeNotifier {
         toUser: toUserId,
         amount: amount,
         note: note,
+        requestedBy: initiator,
       );
       final list = List<SharedSettlement>.from(_settlements[roomId] ?? const []);
       list.insert(0, s);
       _settlements[roomId] = list;
 
-      if (_expenseProvider != null && user != null) {
+      // Only mirror into the personal ledger if money has actually moved.
+      // Pending proposals must not show up as a real personal-cash event.
+      if (s.status == 'completed' &&
+          _expenseProvider != null &&
+          user != null &&
+          toUserId == user.id) {
         final room = roomById(roomId);
         final roomName = room?.roomName ?? 'Shared Room';
-        if (toUserId == user.id) {
-          // Find who sent the money
-          final memberList = membersOf(roomId);
-          final sender = memberList.where((m) => m.userId == fromUserId).firstOrNull;
-          final senderName = sender?.displayName ?? 'Someone';
+        final memberList = membersOf(roomId);
+        final sender = memberList.where((m) => m.userId == fromUserId).firstOrNull;
+        final senderName = sender?.displayName ?? 'Someone';
 
-          final personalExp = Expense(
-            id: const Uuid().v4(),
-            userId: user.id,
-            title: '$senderName ($roomName)',
-            amount: -amount,
-            category: 'Shared',
-            date: DateTime.now(),
-            wallet: 'Main',
-          );
-          _expenseProvider!.addExpense(personalExp);
-        }
+        final personalExp = Expense(
+          id: const Uuid().v4(),
+          userId: user.id,
+          title: '$senderName ($roomName)',
+          amount: -amount,
+          category: 'Shared',
+          date: DateTime.now(),
+          wallet: 'Main',
+        );
+        _expenseProvider!.addExpense(personalExp);
       }
 
       notifyListeners();
@@ -390,17 +398,148 @@ class SharedProvider extends ChangeNotifier {
     }
   }
 
+  /// Creditor approves a pending settlement. Mirrors balance into the
+  /// personal ledger only at this moment (when cash effectively lands).
+  Future<SharedSettlement?> approveSettlement(String settlementId) async {
+    final user = _authProvider?.currentUser;
+    if (user == null) return null;
+    try {
+      final updated = await _service.approveSettlement(
+        settlementId: settlementId,
+        approverUserId: user.id,
+      );
+      if (updated == null) return null;
+
+      final list = List<SharedSettlement>.from(_settlements[updated.roomId] ?? const []);
+      final i = list.indexWhere((x) => x.id == updated.id);
+      if (i != -1) {
+        list[i] = updated;
+      } else {
+        list.insert(0, updated);
+      }
+      _settlements[updated.roomId] = list;
+
+      // Refresh splits cache so isSettled flags propagate to the UI.
+      _expenses[updated.roomId] =
+          await _service.getExpensesForRoom(updated.roomId);
+
+      // Mirror into personal ledger now that money has changed hands.
+      if (_expenseProvider != null && updated.toUser == user.id) {
+        final room = roomById(updated.roomId);
+        final roomName = room?.roomName ?? 'Shared Room';
+        final memberList = membersOf(updated.roomId);
+        final sender =
+            memberList.where((m) => m.userId == updated.fromUser).firstOrNull;
+        final senderName = sender?.displayName ?? 'Someone';
+
+        final personalExp = Expense(
+          id: const Uuid().v4(),
+          userId: user.id,
+          title: '$senderName ($roomName)',
+          amount: -updated.amount,
+          category: 'Shared',
+          date: DateTime.now(),
+          wallet: 'Main',
+        );
+        _expenseProvider!.addExpense(personalExp);
+      }
+
+      notifyListeners();
+      return updated;
+    } catch (e) {
+      debugPrint('[SharedProvider] approveSettlement: $e');
+      return null;
+    }
+  }
+
+  /// Creditor rejects a pending settlement with an optional [reason].
+  Future<SharedSettlement?> rejectSettlement(
+    String settlementId, {
+    String? reason,
+  }) async {
+    final user = _authProvider?.currentUser;
+    if (user == null) return null;
+    try {
+      final updated = await _service.rejectSettlement(
+        settlementId: settlementId,
+        approverUserId: user.id,
+        reason: reason,
+      );
+      if (updated == null) return null;
+
+      final list =
+          List<SharedSettlement>.from(_settlements[updated.roomId] ?? const []);
+      final i = list.indexWhere((x) => x.id == updated.id);
+      if (i != -1) list[i] = updated;
+      _settlements[updated.roomId] = list;
+
+      notifyListeners();
+      return updated;
+    } catch (e) {
+      debugPrint('[SharedProvider] rejectSettlement: $e');
+      return null;
+    }
+  }
+
+  /// Pending settlements awaiting [currentUserId]'s approval (i.e. they are
+  /// the creditor of the proposed transfer).
+  List<SharedSettlement> pendingApprovalsFor(String roomId, String currentUserId) {
+    return (_settlements[roomId] ?? const [])
+        .where((s) =>
+            !s.isDeleted &&
+            s.status == 'pending' &&
+            s.toUser == currentUserId)
+        .toList();
+  }
+
+  /// Pending settlements [currentUserId] has proposed and is waiting on.
+  List<SharedSettlement> pendingProposalsBy(String roomId, String currentUserId) {
+    return (_settlements[roomId] ?? const [])
+        .where((s) =>
+            !s.isDeleted &&
+            s.status == 'pending' &&
+            s.fromUser == currentUserId)
+        .toList();
+  }
+
+  /// True if the current user already has an outstanding pending settlement
+  /// for the given creditor — used to disable duplicate submissions.
+  bool hasPendingSettlement({
+    required String roomId,
+    required String fromUserId,
+    required String toUserId,
+  }) {
+    return (_settlements[roomId] ?? const []).any((s) =>
+        !s.isDeleted &&
+        s.status == 'pending' &&
+        s.fromUser == fromUserId &&
+        s.toUser == toUserId);
+  }
+
   /// Apply every suggested transfer at once (called from "Settle Up" sheet).
+  /// Each transfer is recorded as 'pending' when the current user is the
+  /// debtor — the creditor must still approve.
   Future<int> settleAll(String roomId) async {
+    final user = _authProvider?.currentUser;
+    if (user == null) return 0;
     final transfers = suggestSettlementsFor(roomId);
     int n = 0;
     for (final t in transfers) {
+      // Skip duplicates already awaiting approval.
+      if (hasPendingSettlement(
+        roomId: roomId,
+        fromUserId: t.fromUserId,
+        toUserId: t.toUserId,
+      )) {
+        continue;
+      }
       final s = await recordSettlement(
         roomId: roomId,
         fromUserId: t.fromUserId,
         toUserId: t.toUserId,
         amount: t.amount,
         note: 'Settle-all',
+        requestedBy: user.id,
       );
       if (s != null) n++;
     }

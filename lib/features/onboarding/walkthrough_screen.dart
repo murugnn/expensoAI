@@ -42,7 +42,7 @@ class _WalkthroughScreenState extends State<WalkthroughScreen> {
       title: 'Press and hold to wake Niva',
       subtitle:
           'Long press the + floating action button anytime to talk with Niva. Niva manages your expenses via voice.',
-      image: 'assets/images/walkthrough/3.png',
+      image: 'assets/images/walkthrough/5.png',
       icon: Icons.mic_rounded,
     ),
     _WalkthroughPageData(

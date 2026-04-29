@@ -493,22 +493,38 @@ class SharedService {
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
+  /// Records a settlement. The initial status depends on who initiates:
+  ///   * [requestedBy] == [toUser] → creditor logging cash they received,
+  ///     written immediately as 'completed'.
+  ///   * otherwise → debtor (or third party) proposing a payment,
+  ///     written as 'pending' awaiting the creditor's approval.
   Future<SharedSettlement> recordSettlement({
     required String roomId,
     required String fromUser,
     required String toUser,
     required double amount,
+    required String requestedBy,
     String? note,
   }) async {
+    final isCreditorLogging = requestedBy == toUser;
     final s = SharedSettlement(
       id: const Uuid().v4(),
       roomId: roomId,
       fromUser: fromUser,
       toUser: toUser,
       amount: amount,
+      status: isCreditorLogging ? 'completed' : 'pending',
       note: note,
+      requestedBy: requestedBy,
+      decidedAt: isCreditorLogging ? DateTime.now() : null,
     );
     await _upsertSettlementLocal(s);
+
+    if (isCreditorLogging) {
+      // Creditor self-recorded — flip matching unsettled splits immediately.
+      await _markRelatedSplitsSettled(roomId, fromUser, toUser);
+    }
+
     if (await _isOnline()) {
       try {
         await _supabase.from('shared_settlements').upsert(s.toSupabase());
@@ -518,6 +534,135 @@ class SharedService {
       }
     }
     return s;
+  }
+
+  /// Creditor approves a pending settlement. Flips status to 'completed',
+  /// stamps [decidedAt], and marks the linked SharedExpenseSplits settled.
+  /// Returns the updated settlement, or null if not found / unauthorized.
+  Future<SharedSettlement?> approveSettlement({
+    required String settlementId,
+    required String approverUserId,
+    String? note,
+  }) async {
+    final all = await _loadSettlements();
+    final i = all.indexWhere((s) => s.id == settlementId);
+    if (i == -1) return null;
+    final original = all[i];
+    if (original.toUser != approverUserId) {
+      debugPrint('[SharedService] approveSettlement: unauthorized');
+      return null;
+    }
+    if (original.status != 'pending') return original;
+
+    final updated = original.copyWith(
+      status: 'completed',
+      decidedAt: DateTime.now(),
+      decisionNote: note,
+      isSynced: false,
+    );
+    all[i] = updated;
+    await _saveSettlements(all);
+
+    await _markRelatedSplitsSettled(
+      updated.roomId,
+      updated.fromUser,
+      updated.toUser,
+    );
+
+    if (await _isOnline()) {
+      try {
+        await _supabase.from('shared_settlements').upsert(updated.toSupabase());
+        await _markSettlementSynced(updated.id);
+      } catch (e) {
+        debugPrint('[SharedService] approveSettlement remote failed: $e');
+      }
+    }
+    return updated;
+  }
+
+  /// Creditor rejects a pending settlement. Flips status to 'cancelled',
+  /// stamps [decidedAt], stores the optional [reason] in decision_note.
+  /// Splits are NOT touched — the debt remains outstanding.
+  Future<SharedSettlement?> rejectSettlement({
+    required String settlementId,
+    required String approverUserId,
+    String? reason,
+  }) async {
+    final all = await _loadSettlements();
+    final i = all.indexWhere((s) => s.id == settlementId);
+    if (i == -1) return null;
+    final original = all[i];
+    if (original.toUser != approverUserId) {
+      debugPrint('[SharedService] rejectSettlement: unauthorized');
+      return null;
+    }
+    if (original.status != 'pending') return original;
+
+    final updated = original.copyWith(
+      status: 'cancelled',
+      decidedAt: DateTime.now(),
+      decisionNote: reason,
+      isSynced: false,
+    );
+    all[i] = updated;
+    await _saveSettlements(all);
+
+    if (await _isOnline()) {
+      try {
+        await _supabase.from('shared_settlements').upsert(updated.toSupabase());
+        await _markSettlementSynced(updated.id);
+      } catch (e) {
+        debugPrint('[SharedService] rejectSettlement remote failed: $e');
+      }
+    }
+    return updated;
+  }
+
+  /// When a settlement between [debtor] and [creditor] is finalised, mark
+  /// every unsettled split in the same room where the debtor owes the
+  /// creditor as settled. This is the "decorative" UI flag — the actual
+  /// balance math comes from [computeBalances].
+  Future<void> _markRelatedSplitsSettled(
+    String roomId,
+    String debtor,
+    String creditor,
+  ) async {
+    final exps = await _loadExpenses();
+    bool anyChanged = false;
+    for (var i = 0; i < exps.length; i++) {
+      final e = exps[i];
+      if (e.roomId != roomId || e.isDeleted) continue;
+      if (e.paidBy != creditor) continue;
+
+      bool splitsChanged = false;
+      final updatedSplits = e.splits.map((s) {
+        if (s.userId == debtor && !s.isSettled) {
+          splitsChanged = true;
+          return s.copyWith(isSettled: true);
+        }
+        return s;
+      }).toList();
+      if (!splitsChanged) continue;
+
+      exps[i] = e.copyWith(
+        splits: updatedSplits,
+        isSynced: false,
+        updatedAt: DateTime.now(),
+      );
+      anyChanged = true;
+
+      if (await _isOnline()) {
+        try {
+          await _supabase
+              .from('shared_expense_splits')
+              .upsert(updatedSplits.map((s) => s.toSupabase()).toList());
+          exps[i] = exps[i].copyWith(isSynced: true);
+        } catch (err) {
+          debugPrint('[SharedService] split settle push failed: $err');
+        }
+      }
+    }
+    if (anyChanged) await _saveExpenses(exps);
   }
 
   // ============================================================
@@ -549,7 +694,10 @@ class SharedService {
     }
 
     for (final st in settlements) {
-      if (st.isDeleted || st.status == 'cancelled') continue;
+      if (st.isDeleted) continue;
+      // 'pending' = money hasn't really changed hands yet; 'cancelled' = won't.
+      // Only 'completed' settlements move balances.
+      if (st.status != 'completed') continue;
       // The payer reduces what they owe (their negative balance moves toward zero).
       balance[st.fromUser] = (balance[st.fromUser] ?? 0) + st.amount;
       // The receiver reduces what they're owed.

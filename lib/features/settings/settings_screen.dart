@@ -9,6 +9,7 @@ import 'package:expenso/providers/demon_game_provider.dart';
 import 'package:expenso/providers/gamification_provider.dart';
 import 'package:expenso/features/settings/manage_items_screen.dart';
 import 'package:expenso/features/settings/manage_contacts_screen.dart';
+import 'package:expenso/features/social/social_screen.dart';
 import 'package:expenso/features/settings/manage_subscriptions_screen.dart';
 import 'package:expenso/features/settings/about_screen.dart';
 import 'package:expenso/nav.dart';
@@ -742,13 +743,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _showCurrencyPicker(context),
           ),
           ListTile(
-            leading: const Icon(Icons.contacts_outlined),
-            title: const Text("Contacts"),
+            leading: const Icon(Icons.people_outline_rounded),
+            title: const Text("Friends & Contacts"),
             trailing: const Icon(Icons.arrow_forward_ios, size: 14),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => const ManageContactsScreen(),
+                builder: (_) => const SocialScreen(),
               ),
             ),
           ),

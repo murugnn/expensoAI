@@ -45,5 +45,30 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSContactsUsageDescription</key>
+	<string>Expenso uses your contacts only to find friends already on the app and to invite the rest. Numbers and emails are hashed on-device before being sent.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>io.supabase.expenso</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>io.supabase.expenso</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>expenso.referral</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>expenso</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -40,6 +40,8 @@ import 'package:expenso/features/goals/widgets/active_goal_summary_widget.dart';
 import 'package:expenso/features/agentic_chat/agentic_chat_screen.dart';
 import 'package:expenso/features/mode_switcher/workspace_mode_switcher.dart';
 import 'package:expenso/features/shared/widgets/shared_dashboard_section.dart';
+import 'package:expenso/providers/social_provider.dart';
+import 'package:expenso/features/social/widgets/notification_inbox_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onViewAll;
@@ -474,8 +476,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                            context.push('/goals');
                         }),
                     _VerticalQuickAction(
-                        icon: Icons.contacts_outlined,
-                        label: "Contacts",
+                        icon: Icons.people_outline_rounded,
+                        label: "Friends",
                         onTap: () {
                            setState(() => _isQuickActionsExpanded = false);
                            context.push('/settings/contacts');
@@ -558,41 +560,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                     // Pill badge with avatar embedded at right
-                    InkWell(
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        context.push('/profile');
-                      },
-                      borderRadius: BorderRadius.circular(40),
-                      child: Container(
-                        padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3, right: 3),
-                        decoration: BoxDecoration(
-                          color: cs.surfaceContainerHighest,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Notification bell
+                        _NotificationBell(),
+                        const SizedBox(width: 6),
+                        InkWell(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            context.push('/profile');
+                          },
                           borderRadius: BorderRadius.circular(40),
+                          child: Container(
+                            padding: const EdgeInsets.only(left: 10, top: 3, bottom: 3, right: 3),
+                            decoration: BoxDecoration(
+                              color: cs.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(40),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Streak
+                                const Icon(Icons.local_fire_department, size: 14, color: Colors.deepOrange),
+                                const SizedBox(width: 2),
+                                Text('${gameProvider.currentStreak}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                                const SizedBox(width: 8),
+                                // Coins
+                                const XCoin(size: 14),
+                                const SizedBox(width: 2),
+                                Text('${gameProvider.coins}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                                const SizedBox(width: 8),
+                                // Avatar at the right end
+                                _DashboardProfilePin(
+                                    imagePath: authProvider.userAvatar,
+                                    pinPath: pinAsset,
+                                    size: 36),
+                              ],
+                            ),
+                          ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Streak
-                            const Icon(Icons.local_fire_department, size: 14, color: Colors.deepOrange),
-                            const SizedBox(width: 2),
-                            Text('${gameProvider.currentStreak}',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: cs.onSurface)),
-                            const SizedBox(width: 8),
-                            // Coins
-                            const XCoin(size: 14),
-                            const SizedBox(width: 2),
-                            Text('${gameProvider.coins}',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: cs.onSurface)),
-                            const SizedBox(width: 8),
-                            // Avatar at the right end
-                            _DashboardProfilePin(
-                                imagePath: authProvider.userAvatar,
-                                pinPath: pinAsset,
-                                size: 36),
-                          ],
-                        ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -1056,5 +1066,62 @@ class _DashboardProfilePin extends StatelessWidget {
                     height: size * 0.5,
                     errorBuilder: (ctx, error, stack) => const SizedBox()))
         ]));
+  }
+}
+
+class _NotificationBell extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final social = context.watch<SocialProvider>();
+    final unread = social.unreadNotificationCount;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => NotificationInboxSheet.show(context),
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(
+              Icons.notifications_outlined,
+              size: 24,
+              color: cs.onSurface.withOpacity(0.7),
+            ),
+            if (unread > 0)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: cs.error,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      width: 1.5,
+                    ),
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: Text(
+                    unread > 9 ? '9+' : '$unread',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
