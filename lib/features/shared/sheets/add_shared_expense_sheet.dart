@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:expenso/models/shared_expense.dart';
 import 'package:expenso/models/shared_member.dart';
 import 'package:expenso/providers/shared_provider.dart';
+import 'package:expenso/features/social/widgets/user_avatar.dart';
 
 class AddSharedExpenseSheet extends StatefulWidget {
   final String roomId;
@@ -383,7 +384,6 @@ class _CustomSplitEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Column(
       children: members.map((m) {
         final ctrl = TextEditingController(
@@ -395,19 +395,12 @@ class _CustomSplitEditor extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
             children: [
-              CircleAvatar(
+              UserAvatar(
+                avatarUrl: m.avatarUrl,
+                initials: (m.displayName ?? '?').isEmpty
+                    ? '?'
+                    : (m.displayName ?? '?').substring(0, 1).toUpperCase(),
                 radius: 14,
-                backgroundColor: cs.primary.withOpacity(0.15),
-                backgroundImage: m.avatarUrl != null ? NetworkImage(m.avatarUrl!) : null,
-                child: m.avatarUrl == null ? Text(
-                  (m.displayName ?? '?').isEmpty
-                      ? '?'
-                      : (m.displayName ?? '?').substring(0, 1).toUpperCase(),
-                  style: TextStyle(
-                      color: cs.primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12),
-                ) : null,
               ),
               const SizedBox(width: 10),
               Expanded(

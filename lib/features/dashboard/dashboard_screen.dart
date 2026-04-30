@@ -908,42 +908,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildHealthBottomSheet(BuildContext context, FinancialHealthResult health) {
     final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.monitor_heart_rounded, color: cs.primary, size: 28),
-              const SizedBox(width: 12),
-              Text(
-                "Financial Health Score",
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          _buildHealthRow(context, "Score", "${health.score} / 100", Icons.speed),
-          _buildHealthRow(context, "Grade", health.grade, Icons.grade),
-          _buildHealthRow(context, "Budget Status", health.budgetStatus, Icons.account_balance_wallet),
-          _buildHealthRow(context, "Daily Burn Rate", "₹${health.dailyBurnRate.toStringAsFixed(0)} / day", Icons.local_fire_department),
-          _buildHealthRow(context, "Projected Month-End", "₹${health.projectedMonthEnd.toStringAsFixed(0)}", Icons.trending_up),
-          const SizedBox(height: 16),
-          Text(
-            "Your score is automatically calculated based on budget adherence, spending consistency, and month-over-month trend.",
-            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Got it"),
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.monitor_heart_rounded, color: cs.primary, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Financial Health Score',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  '${health.score}/100',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: cs.primary,
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              health.grade,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Snapshot stats
+            _buildHealthRow(context, 'Budget status', health.budgetStatus,
+                Icons.account_balance_wallet),
+            _buildHealthRow(
+                context,
+                'Daily burn rate',
+                '₹${health.dailyBurnRate.toStringAsFixed(0)} / day',
+                Icons.local_fire_department),
+            _buildHealthRow(
+                context,
+                'Projected month-end',
+                '₹${health.projectedMonthEnd.toStringAsFixed(0)}',
+                Icons.trending_up),
+
+            const SizedBox(height: 8),
+            Divider(color: cs.outlineVariant.withOpacity(0.4)),
+            const SizedBox(height: 8),
+
+            Text(
+              'How the score is built',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: cs.onSurfaceVariant,
+                letterSpacing: 0.3,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...health.breakdown.map((f) => _HealthFactorTile(factor: f)),
+            const SizedBox(height: 12),
+            Text(
+              'Modelled on standard personal-finance health frameworks: '
+              'budget adherence, savings buffer, spending discipline, '
+              'month-over-month trend, category balance, and engagement.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Got it'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -963,7 +1014,70 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
-// ... (Helper classes remain unchanged) ...
+class _HealthFactorTile extends StatelessWidget {
+  final FinancialHealthFactor factor;
+  const _HealthFactorTile({required this.factor});
+
+  Color _colorForFraction(BuildContext context) {
+    final f = factor.fraction;
+    if (f >= 0.8) return const Color(0xFF10B981); // emerald
+    if (f >= 0.6) return const Color(0xFF3B82F6); // blue
+    if (f >= 0.4) return const Color(0xFFF59E0B); // amber
+    return const Color(0xFFEF4444); // red
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final color = _colorForFraction(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  factor.name,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+              ),
+              Text(
+                '${factor.score.round()} / ${factor.maxScore.round()}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: factor.fraction,
+              minHeight: 6,
+              backgroundColor: cs.outlineVariant.withOpacity(0.4),
+              valueColor: AlwaysStoppedAnimation(color),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${factor.status} · ${factor.detail}',
+            style: TextStyle(
+              fontSize: 12,
+              color: cs.onSurface.withOpacity(0.65),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _VerticalQuickAction extends StatelessWidget {
   final IconData icon;
   final String label;

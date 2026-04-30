@@ -16,6 +16,7 @@ import 'package:expenso/providers/social_provider.dart';
 import 'package:expenso/features/shared/sheets/add_shared_expense_sheet.dart';
 import 'package:expenso/features/shared/sheets/settle_up_sheet.dart';
 import 'package:expenso/features/social/sheets/invite_friends_to_room_sheet.dart';
+import 'package:expenso/features/social/widgets/user_avatar.dart';
 
 class SharedRoomScreen extends StatefulWidget {
   final String roomId;
@@ -114,6 +115,7 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final shared = context.watch<SharedProvider>();
+    final social = context.watch<SocialProvider>();
     final room = shared.roomById(widget.roomId);
 
     if (room == null) {
@@ -126,6 +128,41 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
     final members = shared.membersOf(widget.roomId);
     final expenses = shared.expensesOf(widget.roomId);
     final balances = shared.balancesOf(widget.roomId);
+
+    // Resolve user-facing fallbacks: when a member row was inserted with
+    // a null display_name / avatar_url (older rooms, or rows created
+    // before the profile was set), pull from the social profile cache.
+    String nameFor(String userId) {
+      final m = members.where((mm) => mm.userId == userId).firstOrNull;
+      final memberName = m?.displayName?.trim();
+      if (memberName != null && memberName.isNotEmpty) return memberName;
+      final p = social.profileOf(userId);
+      final profileName = p?.displayName?.trim();
+      if (profileName != null && profileName.isNotEmpty) return profileName;
+      return 'Expenso User';
+    }
+
+    String? avatarFor(String userId) {
+      final m = members.where((mm) => mm.userId == userId).firstOrNull;
+      final memberAvatar = m?.avatarUrl?.trim();
+      if (memberAvatar != null && memberAvatar.isNotEmpty) return memberAvatar;
+      return social.profileOf(userId)?.avatarUrl;
+    }
+
+    // Pre-warm profile cache for any members whose profile we haven't
+    // resolved yet — happens silently and only triggers a refresh when
+    // new profiles land.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final missing = members
+          .where((m) =>
+              m.userId != widget.currentUserId &&
+              social.profileOf(m.userId) == null)
+          .map((m) => m.userId)
+          .toList();
+      if (missing.isNotEmpty) {
+        social.ensureProfiles(missing);
+      }
+    });
     final myBalance = balances
         .firstWhere(
           (b) => b.userId == widget.currentUserId,
@@ -228,11 +265,7 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
               ),
               const SizedBox(height: 10),
               ...pendingApprovals.map((s) {
-                final sender = members
-                    .where((m) => m.userId == s.fromUser)
-                    .firstOrNull;
-                final senderName =
-                    sender?.displayName ?? _shortId(s.fromUser);
+                final senderName = nameFor(s.fromUser);
                 return _PendingApprovalCard(
                   settlement: s,
                   fromName: senderName,
@@ -254,10 +287,7 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
               ),
               const SizedBox(height: 10),
               ...pendingProposals.map((s) {
-                final receiver = members
-                    .where((m) => m.userId == s.toUser)
-                    .firstOrNull;
-                final name = receiver?.displayName ?? _shortId(s.toUser);
+                final name = nameFor(s.toUser);
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.symmetric(
@@ -294,17 +324,13 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
               const SizedBox(height: 10),
               ...balances.map((b) {
                 final isMe = b.userId == widget.currentUserId;
-                final name = isMe
-                    ? 'You'
-                    : (b.displayName ?? _shortId(b.userId));
+                final name = isMe ? 'You' : nameFor(b.userId);
                 final color = b.net > 0
                     ? const Color(0xFF4E9F3D)
                     : (b.net < 0 ? cs.error : cs.onSurfaceVariant);
-                
-                final member = shared.membersOf(widget.roomId).where((m) => m.userId == b.userId).firstOrNull;
-                final avatarUrl = member?.avatarUrl;
 
-                final social = context.watch<SocialProvider>();
+                final avatarUrl = avatarFor(b.userId);
+
                 final isFriend = social.isFriend(b.userId);
                 final hasPending = social.hasOutgoingRequestTo(b.userId);
 
@@ -320,17 +346,10 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
                   ),
                   child: Row(
                     children: [
-                      CircleAvatar(
+                      UserAvatar(
+                        avatarUrl: avatarUrl,
+                        initials: name.substring(0, 1).toUpperCase(),
                         radius: 16,
-                        backgroundColor: cs.primary.withOpacity(0.12),
-                        backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                        child: avatarUrl == null ? Text(
-                          name.substring(0, 1).toUpperCase(),
-                          style: TextStyle(
-                              color: cs.primary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13),
-                        ) : null,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -419,12 +438,7 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
               ...expenses.asMap().entries.map((entry) {
                 final e = entry.value;
                 final paidByMe = e.paidBy == widget.currentUserId;
-                final memberLookup = members.where((m) => m.userId == e.paidBy);
-                final paidByName = paidByMe
-                    ? 'You'
-                    : (memberLookup.isNotEmpty
-                        ? (memberLookup.first.displayName ?? 'Member')
-                        : 'Member');
+                final paidByName = paidByMe ? 'You' : nameFor(e.paidBy);
                 return _ExpenseRow(
                   expense: e,
                   paidByLabel: paidByName,
@@ -440,8 +454,6 @@ class _SharedRoomScreenState extends State<SharedRoomScreen> {
       ),
     );
   }
-
-  String _shortId(String id) => id.length > 6 ? id.substring(0, 6) : id;
 
   void _addExpense(BuildContext context) {
     HapticFeedback.lightImpact();

@@ -148,6 +148,37 @@ class FriendService {
         .toList();
   }
 
+  /// Mirror the current user's auth metadata (display name + avatar URL)
+  /// into `user_profiles`. Existing accounts whose profile row predates the
+  /// social layer often carry a `null` display_name and avatar; this lets
+  /// other users see the right name/photo in friend lists and rooms.
+  ///
+  /// Only writes fields that are non-null and not already set on the
+  /// server. Safe to call on every app start.
+  Future<void> syncMyProfile({
+    required String userId,
+    String? displayName,
+    String? avatarUrl,
+  }) async {
+    if (!await _isOnline()) return;
+    final updates = <String, dynamic>{};
+    if (displayName != null && displayName.trim().isNotEmpty) {
+      updates['display_name'] = displayName.trim();
+    }
+    if (avatarUrl != null && avatarUrl.trim().isNotEmpty) {
+      updates['avatar_url'] = avatarUrl.trim();
+    }
+    if (updates.isEmpty) return;
+    try {
+      await _supabase
+          .from('user_profiles')
+          .update(updates)
+          .eq('id', userId);
+    } catch (e) {
+      debugPrint('[FriendService] syncMyProfile failed: $e');
+    }
+  }
+
   Future<UserProfile?> findProfileByCode(String referralCode) async {
     if (!await _isOnline()) return null;
     try {

@@ -39,8 +39,21 @@ class SocialProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      refreshProfiles();
+      // The realtime channel can drift while paused. Re-establish it,
+      // pull anything we missed, and surface any unseen events as local
+      // notifications so the user sees them on resume.
+      _resyncOnResume();
     }
+  }
+
+  Future<void> _resyncOnResume() async {
+    final me = _myId;
+    if (me == null) return;
+    refreshProfiles();
+    _subscribeToEvents(); // ensure channel is alive
+    await _refreshFriendGraph();
+    await _refreshRoomInvites();
+    await _pullEventsAndNotifyUnseen();
   }
 
   // ---------- State ----------
@@ -175,6 +188,9 @@ class SocialProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     await loadAll();
+    // Deliver tray notifications for events that arrived while the app
+    // was closed (anything in the server inbox we hadn't seen in cache).
+    await _pullEventsAndNotifyUnseen();
     _initConnectivity();
     _subscribeToEvents();
 
@@ -185,6 +201,26 @@ class SocialProvider extends ChangeNotifier with WidgetsBindingObserver {
     final email = _authProvider?.currentUser?.email;
     if (email != null && email.isNotEmpty) {
       await pushOwnContactHashes(email: email);
+    }
+
+    // Mirror the auth metadata (name + avatar) into user_profiles so
+    // friends and room members see the right display name and photo
+    // instead of a user-id fallback. This catches accounts that
+    // pre-date the user_profiles trigger.
+    final me = _authProvider?.currentUser;
+    if (me != null) {
+      final meta = me.userMetadata ?? const {};
+      final displayName = (meta['name'] ??
+              meta['full_name'] ??
+              meta['display_name'])
+          ?.toString();
+      final avatar = (meta['avatar'] ?? meta['avatar_url'] ?? meta['picture'])
+          ?.toString();
+      await _friends.syncMyProfile(
+        userId: me.id,
+        displayName: displayName,
+        avatarUrl: avatar,
+      );
     }
   }
 
@@ -197,6 +233,9 @@ class SocialProvider extends ChangeNotifier with WidgetsBindingObserver {
       await _friends.flushQueue();
       await _invites.flushQueue();
       await loadAll();
+      // Re-establish realtime; notify on events that landed while offline.
+      _subscribeToEvents();
+      await _pullEventsAndNotifyUnseen();
     });
   }
 
@@ -334,6 +373,39 @@ class SocialProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Pulls the inbox and fires local notifications for any unseen events
+  /// that arrived while we were backgrounded.
+  Future<void> _pullEventsAndNotifyUnseen() async {
+    final me = _myId;
+    if (me == null) return;
+    try {
+      final knownIds = _events.map((e) => e.id).toSet();
+      final res = await _supabase
+          .from('notification_events')
+          .select()
+          .eq('user_id', me)
+          .order('created_at', ascending: false)
+          .limit(100);
+      final fetched = (res as List)
+          .map((m) => NotificationEvent.fromSupabase(m as Map<String, dynamic>))
+          .toList();
+      final newOnes =
+          fetched.where((e) => !knownIds.contains(e.id) && !e.isRead).toList();
+      _events = fetched;
+      await _saveEventsCache();
+      notifyListeners();
+
+      // Most recent first → deliver oldest first so the tray order matches.
+      for (final ev in newOnes.reversed) {
+        try {
+          await PushService.instance.deliver(ev);
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('[SocialProvider] _pullEventsAndNotifyUnseen: $e');
+    }
+  }
+
   // ---------- Mutations ----------
 
   Future<bool> sendFriendRequest(String toUser, {String? message}) async {
@@ -467,6 +539,33 @@ class SocialProvider extends ChangeNotifier with WidgetsBindingObserver {
       _isSyncingContacts = false;
       notifyListeners();
     }
+  }
+
+  /// Mirror the user's display name + avatar from auth metadata into
+  /// `user_profiles` so other members see the same identity. Triggers
+  /// on the server then propagate the change into shared_room_members.
+  Future<void> updateMyProfile({
+    String? displayName,
+    String? avatarUrl,
+  }) async {
+    final me = _authProvider?.currentUser;
+    if (me == null) return;
+    await _friends.syncMyProfile(
+      userId: me.id,
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+    );
+    // Update the local profile cache so this app sees the change too.
+    final existing = _profilesById[me.id];
+    _profilesById[me.id] = UserProfile(
+      id: me.id,
+      displayName: displayName ?? existing?.displayName,
+      avatarUrl: avatarUrl ?? existing?.avatarUrl,
+      phoneHash: existing?.phoneHash,
+      emailHash: existing?.emailHash,
+      bio: existing?.bio,
+    );
+    notifyListeners();
   }
 
   Future<void> pushOwnContactHashes({

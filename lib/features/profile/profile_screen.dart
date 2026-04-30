@@ -499,6 +499,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _saving = true);
     await authProvider.updateProfile(
         name: _nameController.text, avatar: _selectedAvatar);
+
+    // Mirror the change into user_profiles so friends/room members see
+    // the updated name and avatar instantly (the DB trigger then fans
+    // it out into shared_room_members).
+    final me = authProvider.currentUser;
+    if (me != null) {
+      await context.read<SocialProvider>().updateMyProfile(
+            displayName: _nameController.text,
+            avatarUrl: _selectedAvatar,
+          );
+    }
     if (mounted) {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(

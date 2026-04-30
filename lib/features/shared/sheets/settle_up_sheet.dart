@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'package:expenso/providers/shared_provider.dart';
+import 'package:expenso/providers/social_provider.dart';
 
 class SettleUpSheet extends StatelessWidget {
   final String roomId;
@@ -19,13 +20,17 @@ class SettleUpSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final shared = context.watch<SharedProvider>();
+    final social = context.watch<SocialProvider>();
     final transfers = shared.suggestSettlementsFor(roomId);
     final members = shared.membersOf(roomId);
 
     String displayName(String userId) {
-      final m = members.where((x) => x.userId == userId);
-      if (m.isEmpty) return userId.substring(0, 6);
-      return m.first.displayName ?? 'Member';
+      final m = members.where((x) => x.userId == userId).firstOrNull;
+      final memberName = m?.displayName?.trim();
+      if (memberName != null && memberName.isNotEmpty) return memberName;
+      final profileName = social.profileOf(userId)?.displayName?.trim();
+      if (profileName != null && profileName.isNotEmpty) return profileName;
+      return 'Member';
     }
 
     return Container(

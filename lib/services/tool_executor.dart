@@ -701,10 +701,15 @@ class ToolExecutor {
       monthlyBudget: expenseProvider.currentBudget?.amount,
     );
 
+    final breakdown = health.breakdown
+        .map((f) =>
+            '  • ${f.name}: ${f.score.round()}/${f.maxScore.round()} (${f.status})')
+        .join('\n');
     return '📊 Financial Health Score: ${health.score}/100 (${health.grade})\n'
         'Budget: ${health.budgetStatus}\n'
         'Daily burn rate: ₹${health.dailyBurnRate.toStringAsFixed(0)}\n'
-        'Projected month-end: ₹${health.projectedMonthEnd.toStringAsFixed(0)}';
+        'Projected month-end: ₹${health.projectedMonthEnd.toStringAsFixed(0)}\n'
+        'Breakdown:\n$breakdown';
   }
 
   /// Export financial data to CSV.

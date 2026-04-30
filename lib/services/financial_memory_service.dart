@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:expenso/models/expense.dart';
 
 /// RAG-style structured retrieval over local expense history.
@@ -122,7 +123,21 @@ class FinancialMemoryService {
     );
   }
 
-  /// Financial Health Score (0-100) based on multiple factors.
+  /// Industry-aligned Financial Health Score (0-100).
+  ///
+  /// Modelled after standard personal-finance health frameworks (Mint
+  /// Financial Fitness, NerdWallet Health Score, LendingTree FHI). For an
+  /// expense-only ledger we score the dimensions we can observe:
+  ///
+  ///   1. Budget adherence            — 30 pts
+  ///   2. Savings buffer              — 20 pts (projected % of budget unspent)
+  ///   3. Spending discipline         — 15 pts (coefficient of variation)
+  ///   4. Month-over-month trend      — 15 pts
+  ///   5. Category balance            — 10 pts (essentials vs discretionary)
+  ///   6. Logging engagement          — 10 pts (days-active in last 30)
+  ///
+  /// Each component is exposed in [FinancialHealthResult.breakdown] so the
+  /// UI can render a transparent decomposition instead of a black-box score.
   FinancialHealthResult getFinancialHealthScore(
     List<Expense> expenses, {
     double? monthlyBudget,
@@ -130,58 +145,220 @@ class FinancialMemoryService {
     final now = DateTime.now();
     final velocity = getSpendingVelocity(expenses);
 
-    // Factor 1: Budget adherence (40 points)
-    double budgetScore = 40.0;
-    String budgetStatus = 'No budget set';
-    if (monthlyBudget != null && monthlyBudget > 0) {
-      final budgetUsage = velocity.currentSpent / monthlyBudget;
-      final expectedUsage = now.day /
-          DateTime(now.year, now.month + 1, 0).day;
+    final budget = _scoreBudgetAdherence(velocity, monthlyBudget, now);
+    final savings = _scoreSavingsBuffer(velocity, monthlyBudget);
+    final discipline = _scoreDiscipline(expenses, now);
+    final trend = _scoreTrend(velocity, expenses, now);
+    final balance = _scoreCategoryBalance(expenses, now);
+    final engagement = _scoreEngagement(expenses, now);
 
-      if (budgetUsage <= expectedUsage) {
-        budgetScore = 40.0; // On track or under
-        budgetStatus = 'On track';
-      } else if (budgetUsage <= 1.0) {
-        budgetScore = 40.0 * (1.0 - (budgetUsage - expectedUsage));
-        budgetStatus = 'Slightly over pace';
-      } else {
-        budgetScore = 0.0;
-        budgetStatus = 'Over budget';
-      }
+    final breakdown = <FinancialHealthFactor>[
+      budget,
+      savings,
+      discipline,
+      trend,
+      balance,
+      engagement,
+    ];
+
+    final totalScore = breakdown
+        .fold<double>(0.0, (a, f) => a + f.score)
+        .clamp(0.0, 100.0)
+        .round();
+
+    String grade;
+    if (totalScore >= 80) {
+      grade = 'Excellent';
+    } else if (totalScore >= 65) {
+      grade = 'Good';
+    } else if (totalScore >= 50) {
+      grade = 'Fair';
+    } else if (totalScore >= 30) {
+      grade = 'Needs Attention';
+    } else {
+      grade = 'At Risk';
     }
 
-    // Factor 2: Spending consistency (30 points)
-    // Lower variance = more consistent = better score
-    double consistencyScore = 30.0;
-    final last30Days = expenses
-        .where((e) =>
-            e.date.isAfter(now.subtract(const Duration(days: 30))))
+    return FinancialHealthResult(
+      score: totalScore,
+      grade: grade,
+      budgetStatus: budget.status,
+      dailyBurnRate: velocity.dailyBurnRate,
+      projectedMonthEnd: velocity.projectedMonthEnd,
+      currentSpent: velocity.currentSpent,
+      breakdown: breakdown,
+    );
+  }
+
+  // -------------------- score components --------------------
+
+  FinancialHealthFactor _scoreBudgetAdherence(
+    SpendingVelocity v,
+    double? monthlyBudget,
+    DateTime now,
+  ) {
+    const max = 30.0;
+    if (monthlyBudget == null || monthlyBudget <= 0) {
+      return const FinancialHealthFactor(
+        name: 'Budget adherence',
+        score: max * 0.5, // Neutral when no budget; don't penalise.
+        maxScore: max,
+        status: 'No budget set',
+        detail: 'Set a monthly budget to unlock a precise score.',
+      );
+    }
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final expectedFraction = now.day / daysInMonth;
+    final usedFraction = v.currentSpent / monthlyBudget;
+
+    double pts;
+    String status;
+    if (usedFraction <= expectedFraction) {
+      pts = max;
+      status = 'On track';
+    } else if (usedFraction <= 1.0) {
+      // Linear penalty as overspend ratio grows beyond pace.
+      final overshoot = usedFraction - expectedFraction;
+      pts = max * (1.0 - overshoot.clamp(0.0, 1.0));
+      status = 'Slightly over pace';
+    } else {
+      // Hard penalty once budget is breached, but not zero — reward
+      // anyone within 25% of budget more than someone 2× over.
+      final overage = (usedFraction - 1.0).clamp(0.0, 1.0);
+      pts = (max * 0.4) * (1.0 - overage);
+      status = 'Over budget';
+    }
+
+    return FinancialHealthFactor(
+      name: 'Budget adherence',
+      score: pts.clamp(0.0, max),
+      maxScore: max,
+      status: status,
+      detail:
+          '${(usedFraction * 100).clamp(0, 999).toStringAsFixed(0)}% of budget used by day ${now.day}/$daysInMonth',
+    );
+  }
+
+  FinancialHealthFactor _scoreSavingsBuffer(
+    SpendingVelocity v,
+    double? monthlyBudget,
+  ) {
+    const max = 20.0;
+    if (monthlyBudget == null || monthlyBudget <= 0) {
+      return const FinancialHealthFactor(
+        name: 'Savings buffer',
+        score: max * 0.5,
+        maxScore: max,
+        status: 'No budget set',
+        detail: 'A budget lets us project how much you keep each month.',
+      );
+    }
+    final projectedUnspent = monthlyBudget - v.projectedMonthEnd;
+    final ratio = projectedUnspent / monthlyBudget;
+
+    // Industry guidance: 20%+ savings rate is "excellent".
+    double pts;
+    String status;
+    if (ratio >= 0.20) {
+      pts = max;
+      status = 'Strong cushion';
+    } else if (ratio >= 0.10) {
+      pts = max * 0.75;
+      status = 'Healthy cushion';
+    } else if (ratio >= 0.0) {
+      pts = max * 0.45;
+      status = 'Thin cushion';
+    } else {
+      // Negative buffer means projected to overspend — scale penalty.
+      pts = max * 0.15 * (1.0 + ratio).clamp(0.0, 1.0);
+      status = 'No cushion';
+    }
+    return FinancialHealthFactor(
+      name: 'Savings buffer',
+      score: pts.clamp(0.0, max),
+      maxScore: max,
+      status: status,
+      detail:
+          'Projected to keep ${(ratio * 100).toStringAsFixed(0)}% of budget',
+    );
+  }
+
+  FinancialHealthFactor _scoreDiscipline(List<Expense> expenses, DateTime now) {
+    const max = 15.0;
+    final last30 = expenses
+        .where((e) => e.date.isAfter(now.subtract(const Duration(days: 30))))
         .toList();
 
-    if (last30Days.length >= 7) {
-      final dailyTotals = <int, double>{};
-      for (var e in last30Days) {
-        final dayKey = e.date.difference(DateTime(now.year, 1, 1)).inDays;
-        dailyTotals[dayKey] = (dailyTotals[dayKey] ?? 0) + e.amount;
-      }
-
-      if (dailyTotals.isNotEmpty) {
-        final values = dailyTotals.values.toList();
-        final mean = values.reduce((a, b) => a + b) / values.length;
-        final variance = values
-                .map((v) => (v - mean) * (v - mean))
-                .reduce((a, b) => a + b) /
-            values.length;
-        final cv = mean > 0 ? (variance / (mean * mean)) : 0.0; // Coefficient of variation squared
-
-        // Lower CV = more consistent
-        consistencyScore = 30.0 * (1.0 - (cv.clamp(0.0, 1.0)));
-      }
+    if (last30.length < 5) {
+      return const FinancialHealthFactor(
+        name: 'Spending discipline',
+        score: max * 0.5,
+        maxScore: max,
+        status: 'Insufficient data',
+        detail: 'Log expenses for a couple of weeks to see this signal.',
+      );
     }
 
-    // Factor 3: Month-over-month trend (30 points)
-    // Spending less than last month = good
-    double trendScore = 15.0; // Neutral default
+    // Daily totals over the last 30 days.
+    final dailyTotals = List<double>.filled(30, 0.0);
+    for (final e in last30) {
+      final daysAgo = now.difference(e.date).inDays;
+      if (daysAgo >= 0 && daysAgo < 30) {
+        dailyTotals[daysAgo] += e.amount;
+      }
+    }
+    final mean =
+        dailyTotals.fold<double>(0, (a, b) => a + b) / dailyTotals.length;
+    if (mean <= 0) {
+      return const FinancialHealthFactor(
+        name: 'Spending discipline',
+        score: max,
+        maxScore: max,
+        status: 'No volatility',
+        detail: 'No spending recorded — naturally consistent.',
+      );
+    }
+
+    final variance = dailyTotals
+            .map((v) => (v - mean) * (v - mean))
+            .fold<double>(0, (a, b) => a + b) /
+        dailyTotals.length;
+    final stddev = variance > 0 ? math.sqrt(variance) : 0.0;
+    final cv = stddev / mean; // coefficient of variation
+
+    double pts;
+    String status;
+    if (cv < 0.5) {
+      pts = max;
+      status = 'Very consistent';
+    } else if (cv < 1.0) {
+      pts = max * 0.75;
+      status = 'Mostly consistent';
+    } else if (cv < 1.5) {
+      pts = max * 0.5;
+      status = 'Variable';
+    } else if (cv < 2.5) {
+      pts = max * 0.25;
+      status = 'Spiky';
+    } else {
+      pts = 0.0;
+      status = 'Highly volatile';
+    }
+    return FinancialHealthFactor(
+      name: 'Spending discipline',
+      score: pts.clamp(0.0, max),
+      maxScore: max,
+      status: status,
+      detail: 'Day-to-day variation: ${cv.toStringAsFixed(2)}× the mean',
+    );
+  }
+
+  FinancialHealthFactor _scoreTrend(
+    SpendingVelocity v,
+    List<Expense> expenses,
+    DateTime now,
+  ) {
+    const max = 15.0;
     final lastMonthStart = DateTime(
       now.month == 1 ? now.year - 1 : now.year,
       now.month == 1 ? 12 : now.month - 1,
@@ -192,42 +369,162 @@ class FinancialMemoryService {
         .where((e) =>
             !e.date.isBefore(lastMonthStart) &&
             !e.date.isAfter(lastMonthEnd))
-        .fold(0.0, (sum, e) => sum + e.amount);
+        .fold(0.0, (s, e) => s + e.amount);
 
-    if (lastMonthTotal > 0) {
-      final projectedRatio = velocity.projectedMonthEnd / lastMonthTotal;
-      if (projectedRatio <= 0.9) {
-        trendScore = 30.0; // Spending significantly less
-      } else if (projectedRatio <= 1.0) {
-        trendScore = 25.0; // Slightly less
-      } else if (projectedRatio <= 1.1) {
-        trendScore = 15.0; // Slightly more
-      } else {
-        trendScore = 5.0; // Significantly more
+    if (lastMonthTotal <= 0) {
+      return const FinancialHealthFactor(
+        name: 'Month-over-month',
+        score: max * 0.5,
+        maxScore: max,
+        status: 'No baseline',
+        detail: 'Need at least one prior month of data to compare.',
+      );
+    }
+    final ratio = v.projectedMonthEnd / lastMonthTotal;
+    final delta = (ratio - 1.0) * 100; // percent change
+
+    double pts;
+    String status;
+    if (ratio <= 0.85) {
+      pts = max;
+      status = 'Trending down';
+    } else if (ratio <= 0.97) {
+      pts = max * 0.85;
+      status = 'Slightly lower';
+    } else if (ratio <= 1.03) {
+      pts = max * 0.65;
+      status = 'Steady';
+    } else if (ratio <= 1.15) {
+      pts = max * 0.40;
+      status = 'Trending up';
+    } else if (ratio <= 1.30) {
+      pts = max * 0.20;
+      status = 'Climbing fast';
+    } else {
+      pts = 0.0;
+      status = 'Spiking';
+    }
+    return FinancialHealthFactor(
+      name: 'Month-over-month',
+      score: pts.clamp(0.0, max),
+      maxScore: max,
+      status: status,
+      detail: '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(0)}% vs last month',
+    );
+  }
+
+  FinancialHealthFactor _scoreCategoryBalance(
+    List<Expense> expenses,
+    DateTime now,
+  ) {
+    const max = 10.0;
+    final thisMonth = expenses
+        .where((e) => e.date.year == now.year && e.date.month == now.month)
+        .toList();
+    if (thisMonth.length < 3) {
+      return const FinancialHealthFactor(
+        name: 'Category balance',
+        score: max * 0.5,
+        maxScore: max,
+        status: 'Insufficient data',
+        detail: 'Log a few more expenses to evaluate balance.',
+      );
+    }
+
+    const discretionary = {
+      'shopping', 'entertainment', 'dining', 'subscriptions', 'travel',
+      'leisure', 'gaming', 'gifts', 'personal',
+    };
+
+    double total = 0;
+    double discretionaryTotal = 0;
+    for (final e in thisMonth) {
+      total += e.amount;
+      final cat = e.category.toLowerCase();
+      if (discretionary.any(cat.contains)) {
+        discretionaryTotal += e.amount;
       }
     }
+    if (total <= 0) {
+      return const FinancialHealthFactor(
+        name: 'Category balance',
+        score: max,
+        maxScore: max,
+        status: 'Balanced',
+        detail: 'No spending logged this month.',
+      );
+    }
+    // Concentration in any single category — penalise > 50% in one bucket.
+    final byCat = <String, double>{};
+    for (final e in thisMonth) {
+      byCat[e.category] = (byCat[e.category] ?? 0) + e.amount;
+    }
+    final topShare = byCat.values.fold<double>(0, math.max) / total;
+    final discShare = discretionaryTotal / total;
 
-    final totalScore =
-        (budgetScore + consistencyScore + trendScore).clamp(0.0, 100.0).round();
-
-    String grade;
-    if (totalScore >= 80) {
-      grade = 'Excellent';
-    } else if (totalScore >= 60) {
-      grade = 'Good';
-    } else if (totalScore >= 40) {
-      grade = 'Fair';
-    } else {
-      grade = 'Needs Attention';
+    // Two penalties combined: heavy concentration AND heavy discretionary.
+    double pts = max;
+    String status = 'Well-balanced';
+    if (topShare > 0.65) {
+      pts -= max * 0.4;
+      status = 'Concentrated';
+    } else if (topShare > 0.5) {
+      pts -= max * 0.2;
+      status = 'Slightly concentrated';
+    }
+    if (discShare > 0.5) {
+      pts -= max * 0.4;
+      status = 'Discretionary-heavy';
+    } else if (discShare > 0.35) {
+      pts -= max * 0.2;
     }
 
-    return FinancialHealthResult(
-      score: totalScore,
-      grade: grade,
-      budgetStatus: budgetStatus,
-      dailyBurnRate: velocity.dailyBurnRate,
-      projectedMonthEnd: velocity.projectedMonthEnd,
-      currentSpent: velocity.currentSpent,
+    return FinancialHealthFactor(
+      name: 'Category balance',
+      score: pts.clamp(0.0, max),
+      maxScore: max,
+      status: status,
+      detail:
+          '${(discShare * 100).toStringAsFixed(0)}% discretionary, top category ${(topShare * 100).toStringAsFixed(0)}%',
+    );
+  }
+
+  FinancialHealthFactor _scoreEngagement(
+    List<Expense> expenses,
+    DateTime now,
+  ) {
+    const max = 10.0;
+    final cutoff = now.subtract(const Duration(days: 30));
+    final recent = expenses.where((e) => e.date.isAfter(cutoff));
+    final activeDays = recent
+        .map((e) => DateTime(e.date.year, e.date.month, e.date.day))
+        .toSet()
+        .length;
+
+    double pts;
+    String status;
+    if (activeDays >= 20) {
+      pts = max;
+      status = 'Highly engaged';
+    } else if (activeDays >= 12) {
+      pts = max * 0.75;
+      status = 'Engaged';
+    } else if (activeDays >= 6) {
+      pts = max * 0.5;
+      status = 'Light tracking';
+    } else if (activeDays >= 2) {
+      pts = max * 0.25;
+      status = 'Sparse tracking';
+    } else {
+      pts = 0;
+      status = 'Inactive';
+    }
+    return FinancialHealthFactor(
+      name: 'Logging engagement',
+      score: pts.clamp(0.0, max),
+      maxScore: max,
+      status: status,
+      detail: 'Active on $activeDays of the last 30 days',
     );
   }
 
@@ -375,6 +672,7 @@ class FinancialHealthResult {
   final double dailyBurnRate;
   final double projectedMonthEnd;
   final double currentSpent;
+  final List<FinancialHealthFactor> breakdown;
 
   FinancialHealthResult({
     required this.score,
@@ -383,7 +681,28 @@ class FinancialHealthResult {
     required this.dailyBurnRate,
     required this.projectedMonthEnd,
     required this.currentSpent,
+    this.breakdown = const [],
   });
+}
+
+/// One weighted component of the overall score. Surfaced in the UI so
+/// users see exactly why their score landed where it did.
+class FinancialHealthFactor {
+  final String name;
+  final double score;
+  final double maxScore;
+  final String status;
+  final String detail;
+
+  const FinancialHealthFactor({
+    required this.name,
+    required this.score,
+    required this.maxScore,
+    required this.status,
+    required this.detail,
+  });
+
+  double get fraction => maxScore > 0 ? (score / maxScore).clamp(0.0, 1.0) : 0.0;
 }
 
 class CategoryBudgetStatus {
